@@ -73,7 +73,7 @@ impl AsrEngine {
             .args([
                 format!("--sense-voice-model={model_str}"),
                 format!("--tokens={tokens_str}"),
-                format!("--use-itn=1"),
+                "--sense-voice-use-itn=true".to_string(),
                 wav_str.to_string(),
             ])
             .output()
