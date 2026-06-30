@@ -1,0 +1,201 @@
+# CLI 专有词库 — 语音识别修正辅助
+
+# ============================================================
+# Claude Code 命令
+# ============================================================
+claude_code_commands:
+  - /help
+  - /clear
+  - /compact
+  - /config
+  - /doctor
+  - /model
+  - /permissions
+  - /status
+  - /review
+  - /security-review
+  - /init
+  - /simplify
+  - /code-review
+  - /code-review-commit
+  - /install-tools
+  - /workflows
+  - /loop
+  - /fast
+  - /design-sync
+  - /design-login
+  - /agents
+  - /tasks
+  - /mcp
+  - /add-directory
+  - /cost
+  - claude
+  - Claude Code
+  - Fable
+  - Fable 5
+  - Opus
+  - Opus 4.8
+  - Sonnet
+  - Sonnet 4.6
+  - Haiku
+  - Haiku 4.5
+
+# ============================================================
+# CLI 工具
+# ============================================================
+cli_tools:
+  - git
+  - git clone
+  - git add
+  - git commit
+  - git push
+  - git pull
+  - git status
+  - git log
+  - git diff
+  - git branch
+  - git checkout
+  - git merge
+  - git rebase
+  - git stash
+  - npm
+  - npm install
+  - npm run
+  - npm test
+  - npx
+  - pnpm
+  - yarn
+  - pip
+  - pip install
+  - python
+  - docker
+  - docker compose
+  - docker build
+  - kubectl
+  - kubectl get pods
+  - kubectl apply
+  - cargo
+  - cargo build
+  - cargo run
+  - cargo test
+  - rustc
+  - go
+  - go run
+  - go build
+  - go test
+  - go mod
+  - make
+  - cmake
+  - gcc
+  - g++
+  - curl
+  - wget
+  - ssh
+  - scp
+  - rsync
+  - vim
+  - nano
+
+# ============================================================
+# 通用选项/标志
+# ============================================================
+common_options:
+  - --verbose
+  - --debug
+  - --output
+  - --force
+  - --yes
+  - --no-verify
+  - --help
+  - --version
+  - --color
+  - --json
+  - --yaml
+  - --quiet
+  - --recursive
+  - --all
+  - --follow
+  - --ignore
+  - --include
+
+# ============================================================
+# 本项目专有词汇
+# ============================================================
+project_specific:
+  - audio-input
+  - sherpa-onnx
+  - SenseVoice
+  - ONNX
+  - ONNX Runtime
+  - FunASR
+  - Paraformer
+  - WASAPI
+  - Silero VAD
+  - hotwords
+  - LLM
+  - ASR
+  - Whisper
+  - VAD
+
+# ============================================================
+# 音近词修正映射
+# (ASR常误识 → 正确词)
+# ============================================================
+phonetic_corrections:
+  # Claude相关
+  "close": "claude"
+  "cloud": "claude"
+  "clod": "claude"
+  "clawed": "claude"
+  "克劳德": "claude"
+  "科洛德": "claude"
+
+  # code相关
+  "扣的": "code"
+  "口德": "code"
+  "蔻德": "code"
+
+  # git相关
+  "吉特": "git"
+  "歌特": "git"
+  "盖特": "git"
+
+  # npm相关
+  "n p m": "npm"
+
+  # docker相关
+  "道可": "docker"
+  "刀客": "docker"
+
+  # kubectl相关
+  "kube control": "kubectl"
+  "cube control": "kubectl"
+  "kube c t l": "kubectl"
+
+  # 通用
+  "es tea out": "stdout"
+  "es tea in": "stdin"
+  "es tea err": "stderr"
+  "jay son": "JSON"
+  "做客": "Docker"
+  "屁眼": "pnpm"
+  "卡狗": "cargo"
+
+  # 本项目
+  "sense voice": "SenseVoice"
+  "sharper onyx": "sherpa-onnx"
+  "欧尼克斯": "ONNX"
+
+# ============================================================
+# 口语填充词（需要被LLM移除的）
+# ============================================================
+filler_words:
+  - 嗯
+  - 啊
+  - 额
+  - 那个
+  - 这个
+  - 就是说
+  - 然后呢
+  - 那个什么
+  - 怎么说

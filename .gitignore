@@ -1,0 +1,30 @@
+# Rust build artifacts
+target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# Temp
+*.tmp
+stdout.txt
+stderr.txt
+.claude/
+
+# Settings (local only, contains API keys/endpoints)
+settings.json
+
+# Models (too large)
+models/
+
+# DLL files
+*.dll

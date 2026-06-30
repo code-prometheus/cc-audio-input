@@ -1,0 +1,52 @@
+[package]
+name = "audio-input"
+version = "0.2.0"
+edition = "2021"
+description = "Voice + LLM CLI prompt input — hold left mouse 3s to trigger ASR + LLM correction + paste"
+
+[[bin]]
+name = "audio-input"
+path = "src/main.rs"
+
+[dependencies]
+# Windows API
+windows = { version = "0.58", features = [
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Console",
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_Ole",
+    "Win32_System_DataExchange",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_System_Memory",
+    "Win32_Graphics_Gdi",
+] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# HTTP client — native-tls avoids ring/cc compile dependency
+reqwest = { version = "0.12", features = ["json", "native-tls", "blocking"], default-features = false }
+
+# Audio capture
+cpal = "0.15"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Error handling
+anyhow = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
