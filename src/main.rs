@@ -31,15 +31,11 @@ fn main() {
     ).expect("Failed to load hotwords.yaml");
     info!("✅ Hotwords: {} words", hw.word_count());
 
-    // 设备列表
-    info!("🎤 可用输入设备:");
-    let devices = device_selector::list_input_devices();
-    if cfg.audio.device_id >= 0 {
-        info!("  选择设备[{}]: {}", cfg.audio.device_id,
-              device_selector::device_name(cfg.audio.device_id));
-    } else {
-        info!("  使用系统默认设备");
-    }
+    // 设备选择
+    info!("🎤 可用输入设备 (设置 AUDIO_INPUT_DEVICE_ID=N 选择):");
+    let _devices = device_selector::list_input_devices();
+    let device_id = device_selector::resolve_device_id();
+    info!("   已选择设备ID={}: {}", device_id, device_selector::device_name(device_id));
 
     // ASR 引擎
     let asr = asr_engine::AsrEngine::new(&cfg.asr.model_dir)
@@ -65,18 +61,18 @@ fn main() {
     let is_recording = Arc::new(AtomicBool::new(false));
     let audio_buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
     let hold_ms = cfg.hotkey.hold_ms;
-    let device_id = cfg.audio.device_id;
-    let sample_rate = cfg.audio.sample_rate;
-    let channels = cfg.audio.channels;
+    let sample_rate = 16000u32;
+    let channels = 1u16;
 
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     info!("🎤 Ready! Hold left mouse {}s to record", hold_ms / 1000);
     info!("   模型: {:?}", cfg.asr.model_dir);
+    info!("   设备: {} (ID={})", device_selector::device_name(device_id), device_id);
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     trigger::listen(
         hold_ms,
-        // ── on_trigger: 开始录音 ──
+        // on_trigger: 开始录音
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
@@ -97,7 +93,7 @@ fn main() {
                 });
             }
         },
-        // ── on_release: 停止录音 → ASR → LLM → 粘贴 ──
+        // on_release: 停止录音 → ASR → LLM → 粘贴
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
@@ -115,29 +111,25 @@ fn main() {
                 let dur = audio_data.len() as f64 / sample_rate as f64;
                 info!("📊 Audio: {:.1}s, {} samples", dur, audio_data.len());
 
-                // ASR
                 let raw = match &asr {
                     Some(engine) => engine.recognize(&audio_data, sample_rate)
                         .unwrap_or_else(|e| {
                             error!("ASR error: {}", e);
                             format!("[ASR Error: {}]", e)
                         }),
-                    None => format!("[ASR占位-{:.1}s] 等待SenseVoice模型", dur),
+                    None => format!("[ASR占位-{:.1}s]", dur),
                 };
                 info!("📝 ASR: {}", raw);
 
-                // LLM 修正
                 let final_text = match corrector.correct(&raw) {
                     Ok(t) => { info!("🔧 Corrected: {}", t); t }
                     Err(e) => { warn!("LLM failed: {}, using raw", e); raw }
                 };
 
-                // 更新托盘
                 tray.update_result(&final_text);
                 if let Ok(mut lr) = last_res.lock() { *lr = final_text.clone(); }
                 tray.show_notification("audio-input", &final_text);
 
-                // 粘贴
                 match paster.paste(&final_text) {
                     Ok(()) => info!("📋✅ Pasted: {}", final_text),
                     Err(e) => error!("Paste error: {}", e),
