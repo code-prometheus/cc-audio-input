@@ -1,8 +1,12 @@
 //! 系统托盘 — Win32 Shell_NotifyIcon
+//! 托盘图标 + 右键菜单(拷贝/退出) + 气泡通知
 
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use log::info;
+
+/// 全局: 托盘 wndproc 读取的最后识别结果
+static mut G_LAST_RESULT: Option<Arc<Mutex<String>>> = None;
 
 pub struct TrayManager {
     last_result: Arc<Mutex<String>>,
@@ -17,12 +21,14 @@ impl TrayManager {
         let run_val = running.clone();
         let tip = tooltip.to_string();
 
-        info!("📌 托盘已创建: {}", &tip);
+        // 设置全局引用供托盘拷贝使用
+        unsafe { G_LAST_RESULT = Some(lr.clone()); }
+
+        info!("📌 托盘已创建: {}", tip);
 
         std::thread::spawn(move || {
             run_tray(tip, run_val);
         });
-
         Ok((Self { last_result: lr, running: running }, last_result))
     }
 
@@ -37,6 +43,8 @@ impl TrayManager {
         if let Ok(mut r) = self.last_result.lock() {
             *r = text.to_string();
         }
+        // 同步更新全局引用，托盘拷贝可读取
+        unsafe { G_LAST_RESULT = Some(self.last_result.clone()); }
     }
 
     pub fn show_notification(&self, title: &str, body: &str) {
@@ -44,6 +52,7 @@ impl TrayManager {
             .map(|r| r.clone())
             .unwrap_or_default();
         info!("💬 {}: {} (结果: {})", title, body, text);
+        // 真正的 Windows 气泡稍后实现 (需要 NOTIFYICONDATAW.uFlags |= NIF_INFO)
     }
 }
 
@@ -57,6 +66,7 @@ fn run_tray(tooltip: String, running: Arc<AtomicBool>) {
 
     const WM_TRAYICON: u32 = WM_USER + 1;
     const ID_TRAY: u32 = 1;
+    const IDM_COPY: usize = 100;
     const IDM_EXIT: usize = 101;
 
     unsafe {
@@ -122,9 +132,13 @@ unsafe extern "system" fn tray_wndproc(
     lparam: windows::Win32::Foundation::LPARAM,
 ) -> windows::Win32::Foundation::LRESULT {
     use windows::Win32::UI::WindowsAndMessaging::*;
+    use windows::Win32::UI::Shell::*;
+    use windows::Win32::System::DataExchange::*;
+    use windows::Win32::System::Memory::*;
     use windows::core::PCWSTR;
 
     const WM_TRAYICON: u32 = WM_USER + 1;
+    const IDM_COPY: usize = 100;
     const IDM_EXIT: usize = 101;
 
     if msg == WM_TRAYICON {
@@ -134,15 +148,53 @@ unsafe extern "system" fn tray_wndproc(
             let _ = GetCursorPos(&mut pt);
 
             let menu = CreatePopupMenu().unwrap_or(HMENU(std::ptr::null_mut()));
+            let copy_text: Vec<u16> = "📋 拷贝最后结果\0".encode_utf16().collect();
             let exit_text: Vec<u16> = "❌ 退出\0".encode_utf16().collect();
+            let _ = AppendMenuW(menu, MF_STRING, IDM_COPY, PCWSTR::from_raw(copy_text.as_ptr()));
             let _ = AppendMenuW(menu, MF_STRING, IDM_EXIT, PCWSTR::from_raw(exit_text.as_ptr()));
             let _ = SetForegroundWindow(hwnd);
             let _ = TrackPopupMenu(menu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, 0, hwnd, None);
             let _ = DestroyMenu(menu);
+        } else if l == WM_LBUTTONDBLCLK {
+            tray_copy_to_clipboard();
         }
-    } else if msg == WM_COMMAND && wparam.0 as usize == IDM_EXIT {
-        PostQuitMessage(0);
+    } else if msg == WM_COMMAND {
+        match wparam.0 as usize {
+            IDM_COPY => tray_copy_to_clipboard(),
+            IDM_EXIT => PostQuitMessage(0),
+            _ => {}
+        }
     }
 
     DefWindowProcW(hwnd, msg, wparam, lparam)
+}
+
+/// 从 G_LAST_RESULT 读取最新结果并写入剪贴板
+unsafe fn tray_copy_to_clipboard() {
+    let text = G_LAST_RESULT.as_ref()
+        .and_then(|lr| lr.lock().ok())
+        .map(|r| r.clone())
+        .unwrap_or_else(|| "(暂无识别结果)".to_string());
+
+    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+    let size = wide.len() * 2;
+
+    if let Ok(hmem) = windows::Win32::System::Memory::GlobalAlloc(
+        windows::Win32::System::Memory::GMEM_MOVEABLE, size
+    ) {
+        let ptr = windows::Win32::System::Memory::GlobalLock(hmem);
+        if !ptr.is_null() {
+            std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr as *mut u16, wide.len());
+            windows::Win32::System::Memory::GlobalUnlock(hmem);
+            windows::Win32::System::DataExchange::OpenClipboard(None).ok();
+            windows::Win32::System::DataExchange::EmptyClipboard().ok();
+            // CF_UNICODETEXT = 13
+            windows::Win32::System::DataExchange::SetClipboardData(
+                13u32,
+                windows::Win32::Foundation::HANDLE(hmem.0)
+            ).ok();
+            windows::Win32::System::DataExchange::CloseClipboard();
+            info!("📋 托盘拷贝: {}", text);
+        }
+    }
 }
