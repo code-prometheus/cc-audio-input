@@ -1,5 +1,5 @@
-//! audio-input v0.2
-//! Hold left mouse button 3s → record → ASR → LLM correct → Ctrl+V paste
+//! audio-input v0.3
+//! 按住鼠标左键3秒 → 录音 → SenseVoice ASR → LLM修正 → Ctrl+V
 
 mod config;
 mod trigger;
@@ -8,6 +8,8 @@ mod asr_engine;
 mod hotwords;
 mod corrector;
 mod clipboard_paste;
+mod device_selector;
+mod tray;
 
 use log::{info, error, warn};
 use std::sync::{Arc, Mutex};
@@ -18,34 +20,63 @@ fn main() {
         .format_timestamp_millis()
         .init();
 
-    info!("🚀 audio-input v0.2");
+    info!("🚀 audio-input v0.3");
 
     let cfg = config::AppConfig::load();
     info!("✅ LLM: {} @ {}", cfg.llm.model, cfg.llm.base_url);
 
+    // 热词
     let hw = hotwords::Hotwords::load(
-        &std::path::PathBuf::from("assets/hotwords.yaml")
+        &std::path::PathBuf::from("hotwords.yaml")
     ).expect("Failed to load hotwords.yaml");
-    info!("✅ Hotwords: {} words, {} phonetic pairs", hw.word_count(), hw.phonetic_count());
+    info!("✅ Hotwords: {} words", hw.word_count());
 
-    let is_recording = Arc::new(AtomicBool::new(false));
-    let audio_buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
+    // 设备列表
+    info!("🎤 可用输入设备:");
+    let devices = device_selector::list_input_devices();
+    if cfg.audio.device_id >= 0 {
+        info!("  选择设备[{}]: {}", cfg.audio.device_id,
+              device_selector::device_name(cfg.audio.device_id));
+    } else {
+        info!("  使用系统默认设备");
+    }
 
-    let asr = asr_engine::AsrEngine::new_placeholder();
+    // ASR 引擎
+    let asr = asr_engine::AsrEngine::new(&cfg.asr.model_dir)
+        .map(Some)
+        .unwrap_or_else(|e| {
+            warn!("ASR 不可用: {} — 使用占位模式", e);
+            None
+        });
+
+    // LLM 修正器
     let corrector = corrector::Corrector::new(&cfg.llm, &hw)
         .expect("Failed to create LLM corrector");
     info!("✅ LLM corrector ready");
 
+    // 系统托盘
+    let (tray_mgr, last_result) = tray::TrayManager::create("audio-input 🎤")
+        .unwrap_or_else(|e| {
+            warn!("托盘创建失败: {} — 无托盘模式", e);
+            (tray::TrayManager::stub(), Arc::new(Mutex::new(String::new())))
+        });
+
     let paster = clipboard_paste::ClipboardPaster::new();
+    let is_recording = Arc::new(AtomicBool::new(false));
+    let audio_buffer: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
     let hold_ms = cfg.hotkey.hold_ms;
+    let device_id = cfg.audio.device_id;
+    let sample_rate = cfg.audio.sample_rate;
+    let channels = cfg.audio.channels;
 
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    info!("🎤 Ready! Hold left mouse button {}s to record", hold_ms / 1000);
+    info!("🎤 Ready! Hold left mouse {}s to record", hold_ms / 1000);
+    info!("   模型: {:?}", cfg.asr.model_dir);
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     trigger::listen(
         hold_ms,
-        // on_trigger: start recording
+        // ── on_trigger: 开始录音 ──
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
@@ -56,9 +87,9 @@ fn main() {
                 let audio_buf = audio_buf.clone();
                 std::thread::spawn(move || {
                     let rec_cfg = recorder::RecorderConfig {
-                        sample_rate: 16000,
-                        device_id: -1,
-                        channels: 1,
+                        sample_rate,
+                        device_id,
+                        channels,
                     };
                     if let Err(e) = recorder::record_blocking(&rec_cfg, is_rec, &audio_buf) {
                         error!("Record error: {}", e);
@@ -66,10 +97,12 @@ fn main() {
                 });
             }
         },
-        // on_release: stop → ASR → LLM → paste
+        // ── on_release: 停止录音 → ASR → LLM → 粘贴 ──
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
+            let tray = tray_mgr;
+            let last_res = last_result.clone();
             move || {
                 is_rec.store(false, Ordering::SeqCst);
                 std::thread::sleep(std::time::Duration::from_millis(200));
@@ -79,20 +112,32 @@ fn main() {
                     info!("⚠️  No audio data");
                     return;
                 }
-                let dur = audio_data.len() as f64 / 16000.0;
-                info!("📊 Audio: {:.1}s", dur);
+                let dur = audio_data.len() as f64 / sample_rate as f64;
+                info!("📊 Audio: {:.1}s, {} samples", dur, audio_data.len());
 
-                let raw = asr.recognize(&audio_data, 16000).unwrap_or_else(|e| {
-                    error!("ASR: {}", e);
-                    "[ASR Error]".to_string()
-                });
+                // ASR
+                let raw = match &asr {
+                    Some(engine) => engine.recognize(&audio_data, sample_rate)
+                        .unwrap_or_else(|e| {
+                            error!("ASR error: {}", e);
+                            format!("[ASR Error: {}]", e)
+                        }),
+                    None => format!("[ASR占位-{:.1}s] 等待SenseVoice模型", dur),
+                };
                 info!("📝 ASR: {}", raw);
 
+                // LLM 修正
                 let final_text = match corrector.correct(&raw) {
                     Ok(t) => { info!("🔧 Corrected: {}", t); t }
-                    Err(e) => { warn!("LLM correction failed: {}, using raw", e); raw }
+                    Err(e) => { warn!("LLM failed: {}, using raw", e); raw }
                 };
 
+                // 更新托盘
+                tray.update_result(&final_text);
+                if let Ok(mut lr) = last_res.lock() { *lr = final_text.clone(); }
+                tray.show_notification("audio-input", &final_text);
+
+                // 粘贴
                 match paster.paste(&final_text) {
                     Ok(()) => info!("📋✅ Pasted: {}", final_text),
                     Err(e) => error!("Paste error: {}", e),
@@ -102,5 +147,4 @@ fn main() {
             }
         },
     );
-
 }

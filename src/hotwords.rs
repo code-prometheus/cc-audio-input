@@ -24,8 +24,16 @@ pub struct Hotwords {
 
 impl Hotwords {
     pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("无法读取热词文件: {:?}", path))?;
+        // 尝试多个路径
+        let candidates = [
+            path.to_path_buf(),
+            Path::new("assets/hotwords.yaml").to_path_buf(),
+            Path::new("hotwords.yaml").to_path_buf(),
+        ];
+        let found = candidates.iter().find(|p| p.exists())
+            .ok_or_else(|| anyhow::anyhow!("找不到热词文件，搜索路径: {:?}", candidates))?;
+        let content = std::fs::read_to_string(found)
+            .with_context(|| format!("无法读取热词文件: {:?}", found))?;
         let hf: HotwordsFile = serde_yaml::from_str(&content)
             .with_context(|| format!("热词YAML解析失败: {:?}", path))?;
 

@@ -1,6 +1,6 @@
 [package]
 name = "audio-input"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Voice + LLM CLI prompt input — hold left mouse 3s to trigger ASR + LLM correction + paste"
 
@@ -32,7 +32,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 
-# HTTP client — native-tls avoids ring/cc compile dependency
+# HTTP client
 reqwest = { version = "0.12", features = ["json", "native-tls", "blocking"], default-features = false }
 
 # Audio capture
@@ -44,6 +44,12 @@ env_logger = "0.11"
 
 # Error handling
 anyhow = "1"
+
+# Dynamic library loading for Sherpa FFI
+libloading = "0.8"
+
+# Config persistence
+directories = "5"
 
 [profile.release]
 opt-level = "z"
