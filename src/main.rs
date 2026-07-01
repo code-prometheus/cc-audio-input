@@ -125,20 +125,55 @@ fn main() {
     );
 }
 
-/// 通过 Win32 PlaySound 播放系统提示音 (绝对可靠)
-fn play_beep(_output_device_id: i32, _freq: u32, _duration_ms: u64) {
-    #[cfg(windows)]
-    unsafe {
-        use windows::Win32::Media::Audio::*;
-        use windows::core::PCWSTR;
+/// 生成短促WAV临时文件并播放 (PlaySoundW SND_FILENAME 不会被吞)
+fn play_beep(_output_device_id: i32, freq: u32, duration_ms: u64) {
+    let sample_rate = 44100u32;
+    let tone_samples = (sample_rate as u64 * duration_ms / 1000) as usize;
+    let mut samples = vec![0u8; 44 + tone_samples * 2]; // 16-bit PCM
 
-        let alias: Vec<u16> = "SystemAsterisk\0".encode_utf16().collect();
-        PlaySoundW(
-            PCWSTR::from_raw(alias.as_ptr()),
-            None,
-            SND_ALIAS | SND_ASYNC,
-        );
+    // 生成 16-bit PCM 波形
+    let amp = 12000i16;
+    for i in 0..tone_samples {
+        let t = i as f32 / sample_rate as f32;
+        let val = (t * freq as f32 * 2.0 * std::f32::consts::PI).sin();
+        let env = if i < tone_samples / 5 { i as f32 / (tone_samples / 5) as f32 }
+                  else if i > tone_samples * 4 / 5 { (tone_samples - i) as f32 / (tone_samples / 5) as f32 }
+                  else { 1.0 };
+        let sample = (val * env * amp as f32) as i16;
+        let offset = 44 + i * 2;
+        samples[offset] = (sample & 0xFF) as u8;
+        samples[offset + 1] = ((sample >> 8) & 0xFF) as u8;
     }
-    #[cfg(not(windows))]
-    {}
+
+    // WAV 头
+    let total_size = 36 + tone_samples as u32 * 2;
+    samples[0..4].copy_from_slice(b"RIFF");
+    samples[4..8].copy_from_slice(&total_size.to_le_bytes());
+    samples[8..12].copy_from_slice(b"WAVE");
+    samples[12..16].copy_from_slice(b"fmt ");
+    samples[16..20].copy_from_slice(&16u32.to_le_bytes());  // PCM
+    samples[20..22].copy_from_slice(&1u16.to_le_bytes());   // PCM=1
+    samples[22..24].copy_from_slice(&1u16.to_le_bytes());   // mono
+    samples[24..28].copy_from_slice(&sample_rate.to_le_bytes());
+    samples[28..32].copy_from_slice(&(sample_rate * 2).to_le_bytes()); // byte rate (16-bit = 2 bytes)
+    samples[32..34].copy_from_slice(&2u16.to_le_bytes());   // block align
+    samples[34..36].copy_from_slice(&16u16.to_le_bytes());  // bits per sample
+    samples[36..40].copy_from_slice(b"data");
+    samples[40..44].copy_from_slice(&(tone_samples as u32 * 2).to_le_bytes());
+
+    // 写临时文件
+    let tmp = std::env::temp_dir().join(format!("beep_{}.wav", std::process::id()));
+    if let Ok(()) = std::fs::write(&tmp, &samples) {
+        let path: Vec<u16> = tmp.to_str().unwrap_or("").encode_utf16().chain(std::iter::once(0)).collect();
+        #[cfg(windows)]
+        unsafe {
+            use windows::Win32::Media::Audio::*;
+            use windows::core::PCWSTR;
+            // SND_FILENAME | SND_ASYNC = 播放文件，异步不阻塞，一定出声
+            PlaySoundW(PCWSTR::from_raw(path.as_ptr()), None, SND_FILENAME | SND_ASYNC);
+        }
+        // 延迟删除临时文件
+        std::thread::sleep(std::time::Duration::from_millis(duration_ms + 100));
+        let _ = std::fs::remove_file(&tmp);
+    }
 }
