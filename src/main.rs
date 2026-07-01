@@ -1,5 +1,5 @@
 //! audio-input v0.3
-//! 按住鼠标左键3秒 → 录音 → SenseVoice ASR → LLM修正 → Ctrl+V
+//! 按住鼠标左键3秒 → "叮"提示 → 录音 → SenseVoice ASR → LLM修正 → Ctrl+V
 
 mod config;
 mod trigger;
@@ -25,32 +25,26 @@ fn main() {
     let cfg = config::AppConfig::load();
     info!("✅ LLM: {} @ {}", cfg.llm.model, cfg.llm.base_url);
 
-    // 热词
     let hw = hotwords::Hotwords::load(
         &std::path::PathBuf::from("hotwords.yaml")
     ).expect("Failed to load hotwords.yaml");
     info!("✅ Hotwords: {} words", hw.word_count());
 
-    // 设备选择
-    info!("🎤 可用输入设备 (设置 AUDIO_INPUT_DEVICE_ID=N 选择):");
-    let _devices = device_selector::list_input_devices();
+    // ★ 交互式设备选择（有环境变量则跳过）
     let device_id = device_selector::resolve_device_id();
-    info!("   已选择设备ID={}: {}", device_id, device_selector::device_name(device_id));
+    info!("🎤 已选设备: {}", device_selector::device_name(device_id));
 
-    // ASR 引擎
     let asr = asr_engine::AsrEngine::new(&cfg.asr.model_dir)
         .map(Some)
         .unwrap_or_else(|e| {
-            warn!("ASR 不可用: {} — 使用占位模式", e);
+            warn!("ASR 不可用: {} — 占位模式", e);
             None
         });
 
-    // LLM 修正器
     let corrector = corrector::Corrector::new(&cfg.llm, &hw)
         .expect("Failed to create LLM corrector");
     info!("✅ LLM corrector ready");
 
-    // 系统托盘
     let (tray_mgr, last_result) = tray::TrayManager::create("audio-input 🎤")
         .unwrap_or_else(|e| {
             warn!("托盘创建失败: {} — 无托盘模式", e);
@@ -72,11 +66,12 @@ fn main() {
 
     trigger::listen(
         hold_ms,
-        // on_trigger: 开始录音
+        // on_trigger: "叮" + 开始录音
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
             move || {
+                beep_start();
                 is_rec.store(true, Ordering::SeqCst);
                 info!("🔴 Recording...");
                 let is_rec = is_rec.clone();
@@ -93,7 +88,7 @@ fn main() {
                 });
             }
         },
-        // on_release: 停止录音 → ASR → LLM → 粘贴
+        // on_release: 停止 → ASR → LLM → 粘贴 → "叮"停止提示
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
@@ -102,6 +97,7 @@ fn main() {
             move || {
                 is_rec.store(false, Ordering::SeqCst);
                 std::thread::sleep(std::time::Duration::from_millis(200));
+                beep_stop();
 
                 let audio_data = audio_buf.lock().unwrap().clone();
                 if audio_data.is_empty() {
@@ -139,4 +135,20 @@ fn main() {
             }
         },
     );
+}
+
+/// 录音开始提示音 "叮" (1000Hz, 200ms)
+fn beep_start() {
+    #[cfg(windows)]
+    unsafe { windows::Win32::System::Diagnostics::Debug::Beep(1000, 200).ok(); }
+    #[cfg(not(windows))]
+    {}
+}
+
+/// 录音停止提示音 "咚" (600Hz, 150ms)
+fn beep_stop() {
+    #[cfg(windows)]
+    unsafe { windows::Win32::System::Diagnostics::Debug::Beep(600, 150).ok(); }
+    #[cfg(not(windows))]
+    {}
 }
