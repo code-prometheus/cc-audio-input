@@ -1,5 +1,5 @@
 //! audio-input v0.3
-//! 按住鼠标左键3秒 → "叮"提示 → 录音 → SenseVoice ASR → LLM修正 → Ctrl+V
+//! 按住鼠标左键3秒 → "嘀" → 录音 → SenseVoice ASR → LLM修正 → Ctrl+V
 
 mod config;
 mod trigger;
@@ -28,28 +28,23 @@ fn main() {
     let hw = hotwords::Hotwords::load(
         &std::path::PathBuf::from("hotwords.yaml")
     ).expect("Failed to load hotwords.yaml");
-    info!("✅ Hotwords: {} words", hw.word_count());
 
-    // ★ 交互式设备选择（有环境变量则跳过）
-    let device_id = device_selector::resolve_device_id();
-    info!("🎤 已选设备: {}", device_selector::device_name(device_id));
+    // ★ 设备选择
+    let input_id = device_selector::resolve_input_device();
+    let output_id = device_selector::resolve_output_device();
+    info!("🎤 输入: {} | 🎧 输出: {}",
+        device_selector::input_device_name(input_id),
+        device_selector::output_device_name(output_id));
 
     let asr = asr_engine::AsrEngine::new(&cfg.asr.model_dir)
-        .map(Some)
-        .unwrap_or_else(|e| {
-            warn!("ASR 不可用: {} — 占位模式", e);
-            None
-        });
+        .map(Some).unwrap_or_else(|e| { warn!("ASR 不可用: {} — 占位", e); None });
 
     let corrector = corrector::Corrector::new(&cfg.llm, &hw)
-        .expect("Failed to create LLM corrector");
+        .expect("Failed LLM corrector");
     info!("✅ LLM corrector ready");
 
     let (tray_mgr, last_result) = tray::TrayManager::create("audio-input 🎤")
-        .unwrap_or_else(|e| {
-            warn!("托盘创建失败: {} — 无托盘模式", e);
-            (tray::TrayManager::stub(), Arc::new(Mutex::new(String::new())))
-        });
+        .unwrap_or_else(|e| { warn!("托盘失败: {}", e); (tray::TrayManager::stub(), Arc::new(Mutex::new(String::new()))) });
 
     let paster = clipboard_paste::ClipboardPaster::new();
     let is_recording = Arc::new(AtomicBool::new(false));
@@ -60,35 +55,33 @@ fn main() {
 
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     info!("🎤 Ready! Hold left mouse {}s to record", hold_ms / 1000);
-    info!("   模型: {:?}", cfg.asr.model_dir);
-    info!("   设备: {} (ID={})", device_selector::device_name(device_id), device_id);
+    info!("   输入:{} 输出:{}",
+        device_selector::input_device_name(input_id),
+        device_selector::output_device_name(output_id));
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     trigger::listen(
         hold_ms,
-        // on_trigger: "叮" + 开始录音
+        // on_trigger
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
             move || {
-                beep_start();
+                // ★ 短促高频"嘀" — 1800Hz 100ms
+                play_beep(output_id, 1800, 80);
                 is_rec.store(true, Ordering::SeqCst);
                 info!("🔴 Recording...");
                 let is_rec = is_rec.clone();
                 let audio_buf = audio_buf.clone();
                 std::thread::spawn(move || {
-                    let rec_cfg = recorder::RecorderConfig {
-                        sample_rate,
-                        device_id,
-                        channels,
-                    };
+                    let rec_cfg = recorder::RecorderConfig { sample_rate, device_id: input_id, channels };
                     if let Err(e) = recorder::record_blocking(&rec_cfg, is_rec, &audio_buf) {
                         error!("Record error: {}", e);
                     }
                 });
             }
         },
-        // on_release: 停止 → ASR → LLM → 粘贴 → "叮"停止提示
+        // on_release
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
@@ -97,29 +90,23 @@ fn main() {
             move || {
                 is_rec.store(false, Ordering::SeqCst);
                 std::thread::sleep(std::time::Duration::from_millis(200));
-                beep_stop();
+                // ★ 低沉短"咚" — 600Hz 80ms
+                play_beep(output_id, 600, 80);
 
                 let audio_data = audio_buf.lock().unwrap().clone();
-                if audio_data.is_empty() {
-                    info!("⚠️  No audio data");
-                    return;
-                }
+                if audio_data.is_empty() { info!("⚠️  No audio"); return; }
                 let dur = audio_data.len() as f64 / sample_rate as f64;
-                info!("📊 Audio: {:.1}s, {} samples", dur, audio_data.len());
+                info!("📊 Audio: {:.1}s", dur);
 
                 let raw = match &asr {
-                    Some(engine) => engine.recognize(&audio_data, sample_rate)
-                        .unwrap_or_else(|e| {
-                            error!("ASR error: {}", e);
-                            format!("[ASR Error: {}]", e)
-                        }),
-                    None => format!("[ASR占位-{:.1}s]", dur),
+                    Some(e) => e.recognize(&audio_data, sample_rate).unwrap_or_else(|e| { error!("ASR: {}", e); "[ASR Error]".into() }),
+                    None => format!("[占位-{:.1}s]", dur),
                 };
                 info!("📝 ASR: {}", raw);
 
                 let final_text = match corrector.correct(&raw) {
                     Ok(t) => { info!("🔧 Corrected: {}", t); t }
-                    Err(e) => { warn!("LLM failed: {}, using raw", e); raw }
+                    Err(e) => { warn!("LLM failed: {}", e); raw }
                 };
 
                 tray.update_result(&final_text);
@@ -128,7 +115,7 @@ fn main() {
 
                 match paster.paste(&final_text) {
                     Ok(()) => info!("📋✅ Pasted: {}", final_text),
-                    Err(e) => error!("Paste error: {}", e),
+                    Err(e) => error!("Paste: {}", e),
                 }
                 audio_buf.lock().unwrap().clear();
                 info!("✅ Ready");
@@ -137,18 +124,46 @@ fn main() {
     );
 }
 
-/// 录音开始提示音 — 同步播放，确保听到
-fn beep_start() {
-    let _ = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", "[System.Media.SystemSounds]::Asterisk.Play()"])
-        .output();
-    // 给声音播放留时间
-    std::thread::sleep(std::time::Duration::from_millis(300));
-}
+/// 通过选定的输出设备播放短促纯音
+fn play_beep(output_device_id: i32, freq: u32, duration_ms: u64) {
+    let sample_rate = 44100u32;
+    let num_samples = (sample_rate as u64 * duration_ms / 1000) as usize;
+    if num_samples == 0 { return; }
 
-/// 录音停止提示音 — 同步播放
-fn beep_stop() {
-    let _ = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-Command", "[System.Media.SystemSounds]::Exclamation.Play()"])
-        .output();
+    let mut samples = Vec::with_capacity(num_samples);
+    let amp = 0.4f32;
+    for i in 0..num_samples {
+        let t = i as f32 / sample_rate as f32;
+        let val = (t * freq as f32 * 2.0 * std::f32::consts::PI).sin() * amp;
+        // 极短包络
+        let env = if i < num_samples / 5 { i as f32 / (num_samples / 5) as f32 }
+                  else if i > num_samples * 4 / 5 { (num_samples - i) as f32 / (num_samples / 5) as f32 }
+                  else { 1.0 };
+        samples.push(val * env);
+    }
+
+    let device = device_selector::get_output_device(output_device_id);
+    if device.is_none() { return; }
+    let device = device.unwrap();
+
+    use cpal::traits::{DeviceTrait, StreamTrait};
+    if let Ok(config) = device.default_output_config() {
+        let stream_config: cpal::StreamConfig = config.into();
+        let samples = Arc::new(samples);
+        let s = samples.clone();
+        if let Ok(stream) = device.build_output_stream(
+            &stream_config,
+            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                for (i, sample) in data.iter_mut().enumerate() {
+                    *sample = s.get(i).copied().unwrap_or(0.0);
+                }
+            },
+            |e| log::error!("beep音频: {}", e),
+            None,
+        ) {
+            let _ = stream.play();
+            std::thread::sleep(std::time::Duration::from_millis(duration_ms + 30));
+            drop(stream);
+        }
+    }
 }
