@@ -67,13 +67,14 @@ fn main() {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
             move || {
-                // ★ 鼠标检测已释放，播放提示音不会被阻塞
-                std::thread::spawn(move || play_beep(output_id, 1800, 80));
+                // ★ 鼠标检测已释放，启动录音线程
                 is_rec.store(true, Ordering::SeqCst);
                 info!("🔴 Recording...");
                 let is_rec = is_rec.clone();
                 let audio_buf = audio_buf.clone();
                 std::thread::spawn(move || {
+                    // ★ 在录音线程内部播放提示音（不受鼠标状态影响）
+                    play_beep(output_id, 1800, 80);
                     let rec_cfg = recorder::RecorderConfig { sample_rate, device_id: input_id, channels };
                     if let Err(e) = recorder::record_blocking(&rec_cfg, is_rec, &audio_buf) {
                         error!("Record error: {}", e);
