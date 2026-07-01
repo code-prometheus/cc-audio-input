@@ -126,44 +126,47 @@ fn main() {
 
 /// 通过选定的输出设备播放短促纯音
 fn play_beep(output_device_id: i32, freq: u32, duration_ms: u64) {
-    let sample_rate = 44100u32;
-    let num_samples = (sample_rate as u64 * duration_ms / 1000) as usize;
-    if num_samples == 0 { return; }
+    std::thread::spawn(move || {
+        let sample_rate = 44100u32;
+        // 用长后的静音填充，确保 cp al buffer 被充分填满
+        let total_ms = (duration_ms + 100).max(300);  // 至少 300ms
+        let num_samples = (sample_rate as u64 * total_ms / 1000) as usize;
+        let tone_samples = (sample_rate as u64 * duration_ms / 1000) as usize;
 
-    let mut samples = Vec::with_capacity(num_samples);
-    let amp = 0.4f32;
-    for i in 0..num_samples {
-        let t = i as f32 / sample_rate as f32;
-        let val = (t * freq as f32 * 2.0 * std::f32::consts::PI).sin() * amp;
-        // 极短包络
-        let env = if i < num_samples / 5 { i as f32 / (num_samples / 5) as f32 }
-                  else if i > num_samples * 4 / 5 { (num_samples - i) as f32 / (num_samples / 5) as f32 }
-                  else { 1.0 };
-        samples.push(val * env);
-    }
-
-    let device = device_selector::get_output_device(output_device_id);
-    if device.is_none() { return; }
-    let device = device.unwrap();
-
-    use cpal::traits::{DeviceTrait, StreamTrait};
-    if let Ok(config) = device.default_output_config() {
-        let stream_config: cpal::StreamConfig = config.into();
-        let samples = Arc::new(samples);
-        let s = samples.clone();
-        if let Ok(stream) = device.build_output_stream(
-            &stream_config,
-            move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
-                for (i, sample) in data.iter_mut().enumerate() {
-                    *sample = s.get(i).copied().unwrap_or(0.0);
-                }
-            },
-            |e| log::error!("beep音频: {}", e),
-            None,
-        ) {
-            let _ = stream.play();
-            std::thread::sleep(std::time::Duration::from_millis(duration_ms + 30));
-            drop(stream);
+        let mut samples = vec![0.0f32; num_samples];
+        let amp = 0.5f32;
+        for i in 0..tone_samples {
+            let t = i as f32 / sample_rate as f32;
+            let val = (t * freq as f32 * 2.0 * std::f32::consts::PI).sin() * amp;
+            let env = if i < tone_samples / 5 { i as f32 / (tone_samples / 5) as f32 }
+                      else if i > tone_samples * 4 / 5 { (tone_samples - i) as f32 / (tone_samples / 5) as f32 }
+                      else { 1.0 };
+            samples[i] = val * env;
         }
-    }
+        // 前静音后全是 0（静音）
+
+        let device = device_selector::get_output_device(output_device_id);
+        if device.is_none() { return; }
+        let device = device.unwrap();
+
+        use cpal::traits::{DeviceTrait, StreamTrait};
+        if let Ok(config) = device.default_output_config() {
+            let stream_config: cpal::StreamConfig = config.into();
+            let samples = Arc::new(samples);
+            let s = samples.clone();
+            if let Ok(stream) = device.build_output_stream(
+                &stream_config,
+                move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                    let len = data.len().min(s.len());
+                    data[..len].copy_from_slice(&s[..len]);
+                },
+                |e| log::error!("beep: {}", e),
+                None,
+            ) {
+                let _ = stream.play();
+                std::thread::sleep(std::time::Duration::from_millis(total_ms + 50));
+                drop(stream);
+            }
+        }
+    });
 }
