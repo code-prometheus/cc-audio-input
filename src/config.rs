@@ -45,7 +45,7 @@ impl AppConfig {
                 verify_ssl: false,
             },
             hotkey: HotkeyConfig {
-                hold_ms: env_u64("HOLD_MS", 3000),
+                hold_ms: env_u64("HOLD_MS", 1500),
             },
             audio: AudioConfig {
                 device_id: env_i32("DEVICE_ID", -1),

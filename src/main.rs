@@ -73,11 +73,11 @@ fn main() {
                     #[cfg(windows)]
                     unsafe {
                         let beep = windows::Win32::System::Diagnostics::Debug::Beep;
-                        beep(2000, 100).ok();  // 高亢 2kHz 100ms
+                        beep(2000, 100).ok();
                         std::thread::sleep(std::time::Duration::from_millis(80));
                         beep(2000, 100).ok();
                         std::thread::sleep(std::time::Duration::from_millis(80));
-                        beep(2400, 150).ok();  // 更高 2.4kHz 150ms — 上扬收尾
+                        beep(2400, 150).ok();
                     }
                     let rec_cfg = recorder::RecorderConfig { sample_rate, device_id: input_id, channels };
                     if let Err(e) = recorder::record_blocking(&rec_cfg, is_rec, &audio_buf) {
