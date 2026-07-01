@@ -1,77 +1,71 @@
-//! 系统托盘 — Win32 Shell_NotifyIcon
-//! 托盘图标 + 右键菜单(拷贝/退出) + 气泡通知
+//! 系统托盘 — Shell_NotifyIconW + 气泡通知
+//! 托盘图标 + 右键(拷贝/退出) + show_notification 弹出真实气泡
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use log::info;
 
-/// 全局: 托盘 wndproc 读取的最后识别结果
 static mut G_LAST_RESULT: Option<Arc<Mutex<String>>> = None;
+static mut G_BUBBLE_TX: Option<mpsc::Sender<String>> = None;
 
 pub struct TrayManager {
     last_result: Arc<Mutex<String>>,
     running: Arc<AtomicBool>,
+    bubble_tx: mpsc::Sender<String>,
 }
 
 impl TrayManager {
     pub fn create(tooltip: &str) -> Result<(Self, Arc<Mutex<String>>), String> {
         let last_result = Arc::new(Mutex::new(String::new()));
         let running = Arc::new(AtomicBool::new(true));
+        let (bubble_tx, bubble_rx) = mpsc::channel::<String>();
         let lr = last_result.clone();
-        let run_val = running.clone();
+        let run = running.clone();
         let tip = tooltip.to_string();
+        let tx = bubble_tx.clone();
 
-        // 设置全局引用供托盘拷贝使用
         unsafe { G_LAST_RESULT = Some(lr.clone()); }
+        unsafe { G_BUBBLE_TX = Some(bubble_tx); }
 
-        info!("📌 托盘已创建: {}", tip);
+        std::thread::spawn(move || run_tray(tip, run, bubble_rx));
 
-        std::thread::spawn(move || {
-            run_tray(tip, run_val);
-        });
-        Ok((Self { last_result: lr, running: running }, last_result))
+        info!("📌 托盘已创建: {}", tooltip);
+        Ok((Self { last_result: lr, running, bubble_tx: tx }, last_result))
     }
 
     pub fn stub() -> Self {
-        Self {
-            last_result: Arc::new(Mutex::new(String::new())),
-            running: Arc::new(AtomicBool::new(false)),
-        }
+        let (tx, _) = mpsc::channel();
+        Self { last_result: Arc::new(Mutex::new(String::new())), running: Arc::new(AtomicBool::new(false)), bubble_tx: tx }
     }
 
     pub fn update_result(&self, text: &str) {
-        if let Ok(mut r) = self.last_result.lock() {
-            *r = text.to_string();
-        }
-        // 同步更新全局引用，托盘拷贝可读取
+        if let Ok(mut r) = self.last_result.lock() { *r = text.to_string(); }
         unsafe { G_LAST_RESULT = Some(self.last_result.clone()); }
     }
 
-    pub fn show_notification(&self, title: &str, body: &str) {
-        let text = self.last_result.lock()
-            .map(|r| r.clone())
-            .unwrap_or_default();
-        info!("💬 {}: {} (结果: {})", title, body, text);
-        // 真正的 Windows 气泡稍后实现 (需要 NOTIFYICONDATAW.uFlags |= NIF_INFO)
+    pub fn show_notification(&self, _title: &str, body: &str) {
+        let _ = self.bubble_tx.send(body.to_string());
     }
 }
 
 #[cfg(windows)]
-fn run_tray(tooltip: String, running: Arc<AtomicBool>) {
+fn run_tray(tooltip: String, running: Arc<AtomicBool>, bubble_rx: mpsc::Receiver<String>) {
     use windows::Win32::UI::Shell::*;
     use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::Win32::Foundation::*;
     use windows::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows::core::PCWSTR;
+    use windows::Win32::System::DataExchange::*;
+    use windows::Win32::System::Memory::*;
 
     const WM_TRAYICON: u32 = WM_USER + 1;
     const ID_TRAY: u32 = 1;
     const IDM_COPY: usize = 100;
     const IDM_EXIT: usize = 101;
+    const NOTIFY_ID: u32 = 42; // bubble timer ID
 
     unsafe {
         let Ok(hinstance) = GetModuleHandleW(None) else { return };
-
         let cn: Vec<u16> = "AITrayCls\0".encode_utf16().collect();
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
@@ -81,18 +75,9 @@ fn run_tray(tooltip: String, running: Arc<AtomicBool>) {
             ..Default::default()
         };
         RegisterClassExW(&wc);
-
-        let Ok(hwnd) = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            PCWSTR::from_raw(cn.as_ptr()),
-            PCWSTR::from_raw(cn.as_ptr()),
-            WS_OVERLAPPED,
-            0, 0, 0, 0,
-            None, None, hinstance, None,
-        ) else { return };
+        let Ok(hwnd) = CreateWindowExW(WINDOW_EX_STYLE::default(), PCWSTR::from_raw(cn.as_ptr()), PCWSTR::from_raw(cn.as_ptr()), WS_OVERLAPPED, 0, 0, 0, 0, None, None, hinstance, None) else { return };
 
         let Ok(icon) = LoadIconW(None, IDI_APPLICATION) else { return };
-
         let tip_wide: Vec<u16> = tooltip.encode_utf16().take(127).chain(std::iter::once(0)).collect();
         let mut tip_arr = [0u16; 128];
         let n = tip_wide.len().min(127);
@@ -108,29 +93,48 @@ fn run_tray(tooltip: String, running: Arc<AtomicBool>) {
             szTip: tip_arr,
             ..Default::default()
         };
+        let _ = Shell_NotifyIconW(NIM_ADD, &nid);
 
-        Shell_NotifyIconW(NIM_ADD, &nid);
-
+        // 消息循环（PeekMessage 非阻塞，可同时检查 bubble channel）
         let mut msg = MSG::default();
-        while running.load(Ordering::SeqCst) {
-            if GetMessageW(&mut msg, None, 0, 0).as_bool() {
+        loop {
+            if !running.load(Ordering::SeqCst) { break; }
+            // 检查气泡通知
+            if let Ok(bubble_text) = bubble_rx.try_recv() {
+                // 填充 NIF_INFO
+                let info: Vec<u16> = bubble_text.encode_utf16().take(255).chain(std::iter::once(0)).collect();
+                let mut info_arr = [0u16; 256];
+                let m = info.len().min(255);
+                info_arr[..m].copy_from_slice(&info[..m]);
+
+                let mut title_arr = [0u16; 64];
+                let title_bytes = b"audio-input";
+                for (i, &b) in title_bytes.iter().enumerate() {
+                    title_arr[i] = b as u16;
+                }
+
+                nid.uFlags |= NIF_INFO;
+                nid.szInfoTitle = title_arr;
+                nid.szInfo = info_arr;
+                nid.dwInfoFlags = NIIF_INFO;
+                let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
+                nid.uFlags &= !NIF_INFO; // reset
+            }
+            // 非阻塞窗口消息
+            if PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+            std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
-        Shell_NotifyIconW(NIM_DELETE, &nid);
+        let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
         let _ = DestroyWindow(hwnd);
     }
 }
 
 #[cfg(windows)]
-unsafe extern "system" fn tray_wndproc(
-    hwnd: windows::Win32::Foundation::HWND,
-    msg: u32,
-    wparam: windows::Win32::Foundation::WPARAM,
-    lparam: windows::Win32::Foundation::LPARAM,
-) -> windows::Win32::Foundation::LRESULT {
+unsafe extern "system" fn tray_wndproc(hwnd: windows::Win32::Foundation::HWND, msg: u32, wparam: windows::Win32::Foundation::WPARAM, lparam: windows::Win32::Foundation::LPARAM) -> windows::Win32::Foundation::LRESULT {
     use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::Win32::UI::Shell::*;
     use windows::Win32::System::DataExchange::*;
@@ -146,7 +150,6 @@ unsafe extern "system" fn tray_wndproc(
         if l == WM_RBUTTONUP || l == WM_CONTEXTMENU {
             let mut pt = windows::Win32::Foundation::POINT::default();
             let _ = GetCursorPos(&mut pt);
-
             let menu = CreatePopupMenu().unwrap_or(HMENU(std::ptr::null_mut()));
             let copy_text: Vec<u16> = "📋 拷贝最后结果\0".encode_utf16().collect();
             let exit_text: Vec<u16> = "❌ 退出\0".encode_utf16().collect();
@@ -156,45 +159,40 @@ unsafe extern "system" fn tray_wndproc(
             let _ = TrackPopupMenu(menu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, 0, hwnd, None);
             let _ = DestroyMenu(menu);
         } else if l == WM_LBUTTONDBLCLK {
-            tray_copy_to_clipboard();
+            tray_copy();
         }
     } else if msg == WM_COMMAND {
         match wparam.0 as usize {
-            IDM_COPY => tray_copy_to_clipboard(),
+            IDM_COPY => tray_copy(),
             IDM_EXIT => PostQuitMessage(0),
             _ => {}
         }
     }
-
     DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
-/// 从 G_LAST_RESULT 读取最新结果并写入剪贴板
-unsafe fn tray_copy_to_clipboard() {
-    let text = G_LAST_RESULT.as_ref()
-        .and_then(|lr| lr.lock().ok())
-        .map(|r| r.clone())
-        .unwrap_or_else(|| "(暂无识别结果)".to_string());
-
+unsafe fn tray_copy() {
+    let text = G_LAST_RESULT.as_ref().and_then(|lr| lr.lock().ok()).map(|r| r.clone()).unwrap_or_else(|| "(空)".to_string());
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let size = wide.len() * 2;
-
-    if let Ok(hmem) = windows::Win32::System::Memory::GlobalAlloc(
-        windows::Win32::System::Memory::GMEM_MOVEABLE, size
-    ) {
+    if let Ok(hmem) = windows::Win32::System::Memory::GlobalAlloc(windows::Win32::System::Memory::GMEM_MOVEABLE, size) {
         let ptr = windows::Win32::System::Memory::GlobalLock(hmem);
         if !ptr.is_null() {
             std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr as *mut u16, wide.len());
             windows::Win32::System::Memory::GlobalUnlock(hmem);
             windows::Win32::System::DataExchange::OpenClipboard(None).ok();
             windows::Win32::System::DataExchange::EmptyClipboard().ok();
-            // CF_UNICODETEXT = 13
-            windows::Win32::System::DataExchange::SetClipboardData(
-                13u32,
-                windows::Win32::Foundation::HANDLE(hmem.0)
-            ).ok();
+            windows::Win32::System::DataExchange::SetClipboardData(13u32, windows::Win32::Foundation::HANDLE(hmem.0)).ok();
             windows::Win32::System::DataExchange::CloseClipboard();
-            info!("📋 托盘拷贝: {}", text);
+        }
+    }
+}
+
+/// 外部调用，发送气泡到托盘线程
+pub fn send_bubble(msg: &str) {
+    unsafe {
+        if let Some(ref tx) = G_BUBBLE_TX {
+            let _ = tx.send(msg.to_string());
         }
     }
 }
