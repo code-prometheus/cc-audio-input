@@ -1,41 +1,35 @@
-//! 系统托盘 — Shell_NotifyIconW + 气泡通知
-//! 托盘图标 + 右键(拷贝/退出) + show_notification 弹出真实气泡
+//! 系统托盘 — Shell_NotifyIconW
+//! 托盘图标 + 右键(拷贝/退出) + show_notification 更新 tooltip
 
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use log::info;
 
 static mut G_LAST_RESULT: Option<Arc<Mutex<String>>> = None;
-static mut G_BUBBLE_TX: Option<mpsc::Sender<String>> = None;
 
 pub struct TrayManager {
     last_result: Arc<Mutex<String>>,
     running: Arc<AtomicBool>,
-    bubble_tx: mpsc::Sender<String>,
 }
 
 impl TrayManager {
     pub fn create(tooltip: &str) -> Result<(Self, Arc<Mutex<String>>), String> {
         let last_result = Arc::new(Mutex::new(String::new()));
         let running = Arc::new(AtomicBool::new(true));
-        let (bubble_tx, bubble_rx) = mpsc::channel::<String>();
         let lr = last_result.clone();
         let run = running.clone();
         let tip = tooltip.to_string();
-        let tx = bubble_tx.clone();
 
         unsafe { G_LAST_RESULT = Some(lr.clone()); }
-        unsafe { G_BUBBLE_TX = Some(bubble_tx); }
 
-        std::thread::spawn(move || run_tray(tip, run, bubble_rx));
+        std::thread::spawn(move || run_tray(tip, run));
 
         info!("📌 托盘已创建: {}", tooltip);
-        Ok((Self { last_result: lr, running, bubble_tx: tx }, last_result))
+        Ok((Self { last_result: lr, running }, last_result))
     }
 
     pub fn stub() -> Self {
-        let (tx, _) = mpsc::channel();
-        Self { last_result: Arc::new(Mutex::new(String::new())), running: Arc::new(AtomicBool::new(false)), bubble_tx: tx }
+        Self { last_result: Arc::new(Mutex::new(String::new())), running: Arc::new(AtomicBool::new(false)) }
     }
 
     pub fn update_result(&self, text: &str) {
@@ -43,13 +37,13 @@ impl TrayManager {
         unsafe { G_LAST_RESULT = Some(self.last_result.clone()); }
     }
 
-    pub fn show_notification(&self, _title: &str, body: &str) {
-        let _ = self.bubble_tx.send(body.to_string());
+    pub fn show_notification(&self, _title: &str, _body: &str) {
+        info!("💬 {}: {}", _title, _body);
     }
 }
 
 #[cfg(windows)]
-fn run_tray(tooltip: String, running: Arc<AtomicBool>, bubble_rx: mpsc::Receiver<String>) {
+fn run_tray(tooltip: String, running: Arc<AtomicBool>) {
     use windows::Win32::UI::Shell::*;
     use windows::Win32::UI::WindowsAndMessaging::*;
     use windows::Win32::Foundation::*;
@@ -62,7 +56,6 @@ fn run_tray(tooltip: String, running: Arc<AtomicBool>, bubble_rx: mpsc::Receiver
     const ID_TRAY: u32 = 1;
     const IDM_COPY: usize = 100;
     const IDM_EXIT: usize = 101;
-    const NOTIFY_ID: u32 = 42; // bubble timer ID
 
     unsafe {
         let Ok(hinstance) = GetModuleHandleW(None) else { return };
@@ -83,7 +76,7 @@ fn run_tray(tooltip: String, running: Arc<AtomicBool>, bubble_rx: mpsc::Receiver
         let n = tip_wide.len().min(127);
         tip_arr[..n].copy_from_slice(&tip_wide[..n]);
 
-        let mut nid = NOTIFYICONDATAW {
+        let nid = NOTIFYICONDATAW {
             cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
             hWnd: hwnd,
             uID: ID_TRAY,
@@ -95,37 +88,12 @@ fn run_tray(tooltip: String, running: Arc<AtomicBool>, bubble_rx: mpsc::Receiver
         };
         let _ = Shell_NotifyIconW(NIM_ADD, &nid);
 
-        // 消息循环（PeekMessage 非阻塞，可同时检查 bubble channel）
         let mut msg = MSG::default();
-        loop {
-            if !running.load(Ordering::SeqCst) { break; }
-            // 检查气泡通知
-            if let Ok(bubble_text) = bubble_rx.try_recv() {
-                // 填充 NIF_INFO
-                let info: Vec<u16> = bubble_text.encode_utf16().take(255).chain(std::iter::once(0)).collect();
-                let mut info_arr = [0u16; 256];
-                let m = info.len().min(255);
-                info_arr[..m].copy_from_slice(&info[..m]);
-
-                let mut title_arr = [0u16; 64];
-                let title_bytes = b"audio-input";
-                for (i, &b) in title_bytes.iter().enumerate() {
-                    title_arr[i] = b as u16;
-                }
-
-                nid.uFlags |= NIF_INFO;
-                nid.szInfoTitle = title_arr;
-                nid.szInfo = info_arr;
-                nid.dwInfoFlags = NIIF_INFO;
-                let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
-                nid.uFlags &= !NIF_INFO; // reset
-            }
-            // 非阻塞窗口消息
-            if PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
-                TranslateMessage(&msg);
+        while running.load(Ordering::SeqCst) {
+            if GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                let _ = TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
-            std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
         let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
@@ -184,15 +152,6 @@ unsafe fn tray_copy() {
             windows::Win32::System::DataExchange::EmptyClipboard().ok();
             windows::Win32::System::DataExchange::SetClipboardData(13u32, windows::Win32::Foundation::HANDLE(hmem.0)).ok();
             windows::Win32::System::DataExchange::CloseClipboard();
-        }
-    }
-}
-
-/// 外部调用，发送气泡到托盘线程
-pub fn send_bubble(msg: &str) {
-    unsafe {
-        if let Some(ref tx) = G_BUBBLE_TX {
-            let _ = tx.send(msg.to_string());
         }
     }
 }

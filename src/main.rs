@@ -69,6 +69,9 @@ fn main() {
                 let is_rec = is_rec.clone();
                 let audio_buf = audio_buf.clone();
                 std::thread::spawn(move || {
+                    // ★ 系统蜂鸣器提示 — 100%可靠,不走声卡
+                    #[cfg(windows)]
+                    unsafe { windows::Win32::System::Diagnostics::Debug::Beep(800, 120).ok(); }
                     let rec_cfg = recorder::RecorderConfig { sample_rate, device_id: input_id, channels };
                     if let Err(e) = recorder::record_blocking(&rec_cfg, is_rec, &audio_buf) {
                         error!("Record error: {}", e);
