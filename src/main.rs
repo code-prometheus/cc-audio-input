@@ -62,17 +62,13 @@ fn main() {
 
     trigger::listen(
         hold_ms,
-        // on_press: 鼠标按下瞬间 → 提示音 (此时系统未进入拖动状态)
-        {
-            move || {
-                std::thread::spawn(move || play_beep(output_id, 1800, 80));
-            }
-        },
-        // on_trigger: 按住3秒 → 开始录音
+        // on_trigger: 按住3秒 → 释放检测 → 播放提示音 + 开始录音
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
             move || {
+                // ★ 鼠标检测已释放，播放提示音不会被阻塞
+                std::thread::spawn(move || play_beep(output_id, 1800, 80));
                 is_rec.store(true, Ordering::SeqCst);
                 info!("🔴 Recording...");
                 let is_rec = is_rec.clone();
