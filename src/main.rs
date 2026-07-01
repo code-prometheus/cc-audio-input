@@ -67,8 +67,8 @@ fn main() {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
             move || {
-                // ★ 短促高频"嘀" — 1800Hz 100ms
-                play_beep(output_id, 1800, 80);
+                // 异步播放，不阻塞录音启动
+                std::thread::spawn(move || play_beep(output_id, 1800, 80));
                 is_rec.store(true, Ordering::SeqCst);
                 info!("🔴 Recording...");
                 let is_rec = is_rec.clone();
