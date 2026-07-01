@@ -137,18 +137,18 @@ fn main() {
     );
 }
 
-/// 录音开始提示音 "叮" (1000Hz, 200ms)
+/// 录音开始提示音 — 同步播放，确保听到
 fn beep_start() {
-    #[cfg(windows)]
-    unsafe { windows::Win32::System::Diagnostics::Debug::Beep(1000, 200).ok(); }
-    #[cfg(not(windows))]
-    {}
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", "[System.Media.SystemSounds]::Asterisk.Play()"])
+        .output();
+    // 给声音播放留时间
+    std::thread::sleep(std::time::Duration::from_millis(300));
 }
 
-/// 录音停止提示音 "咚" (600Hz, 150ms)
+/// 录音停止提示音 — 同步播放
 fn beep_stop() {
-    #[cfg(windows)]
-    unsafe { windows::Win32::System::Diagnostics::Debug::Beep(600, 150).ok(); }
-    #[cfg(not(windows))]
-    {}
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", "[System.Media.SystemSounds]::Exclamation.Play()"])
+        .output();
 }
