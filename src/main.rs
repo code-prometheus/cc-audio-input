@@ -73,8 +73,9 @@ fn main() {
                 let is_rec = is_rec.clone();
                 let audio_buf = audio_buf.clone();
                 std::thread::spawn(move || {
-                    // ★ 在录音线程内部播放提示音（不受鼠标状态影响）
-                    play_beep(output_id, 1800, 80);
+                    // ★ 先同步播放提示音（等待播完），再开麦克风
+                    //    麦克风的 WASAPI 输入流会终止异步播放
+                    play_beep_sync(output_id, 1800, 80);
                     let rec_cfg = recorder::RecorderConfig { sample_rate, device_id: input_id, channels };
                     if let Err(e) = recorder::record_blocking(&rec_cfg, is_rec, &audio_buf) {
                         error!("Record error: {}", e);
@@ -174,6 +175,55 @@ fn play_beep(_output_device_id: i32, freq: u32, duration_ms: u64) {
         }
         // 延迟删除临时文件
         std::thread::sleep(std::time::Duration::from_millis(duration_ms + 100));
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// 同步版 — 播放完毕才返回，保证声音不被后续麦克风打开终止
+fn play_beep_sync(_output_device_id: i32, freq: u32, duration_ms: u64) {
+    let sample_rate = 44100u32;
+    let tone_samples = (sample_rate as u64 * duration_ms / 1000) as usize;
+    let mut samples = vec![0u8; 44 + tone_samples * 2];
+
+    let amp = 12000i16;
+    for i in 0..tone_samples {
+        let t = i as f32 / sample_rate as f32;
+        let val = (t * freq as f32 * 2.0 * std::f32::consts::PI).sin();
+        let env = if i < tone_samples / 5 { i as f32 / (tone_samples / 5) as f32 }
+                  else if i > tone_samples * 4 / 5 { (tone_samples - i) as f32 / (tone_samples / 5) as f32 }
+                  else { 1.0 };
+        let sample = (val * env * amp as f32) as i16;
+        let offset = 44 + i * 2;
+        samples[offset] = (sample & 0xFF) as u8;
+        samples[offset + 1] = ((sample >> 8) & 0xFF) as u8;
+    }
+
+    let total_size = 36 + tone_samples as u32 * 2;
+    samples[0..4].copy_from_slice(b"RIFF");
+    samples[4..8].copy_from_slice(&total_size.to_le_bytes());
+    samples[8..12].copy_from_slice(b"WAVE");
+    samples[12..16].copy_from_slice(b"fmt ");
+    samples[16..20].copy_from_slice(&16u32.to_le_bytes());
+    samples[20..22].copy_from_slice(&1u16.to_le_bytes());
+    samples[22..24].copy_from_slice(&1u16.to_le_bytes());
+    samples[24..28].copy_from_slice(&sample_rate.to_le_bytes());
+    samples[28..32].copy_from_slice(&(sample_rate * 2).to_le_bytes());
+    samples[32..34].copy_from_slice(&2u16.to_le_bytes());
+    samples[34..36].copy_from_slice(&16u16.to_le_bytes());
+    samples[36..40].copy_from_slice(b"data");
+    samples[40..44].copy_from_slice(&(tone_samples as u32 * 2).to_le_bytes());
+
+    let tmp = std::env::temp_dir().join(format!("beep_{}.wav", std::process::id()));
+    if let Ok(()) = std::fs::write(&tmp, &samples) {
+        let path: Vec<u16> = tmp.to_str().unwrap_or("").encode_utf16().chain(std::iter::once(0)).collect();
+        #[cfg(windows)]
+        unsafe {
+            use windows::Win32::Media::Audio::*;
+            use windows::core::PCWSTR;
+            // ★ SND_FILENAME | SND_SYNC = 同步播放，播完才返回
+            //    这样麦克风打开时声音已经播完，不会被终止
+            PlaySoundW(PCWSTR::from_raw(path.as_ptr()), None, SND_FILENAME | SND_SYNC);
+        }
         let _ = std::fs::remove_file(&tmp);
     }
 }
