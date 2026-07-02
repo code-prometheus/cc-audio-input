@@ -1,44 +1,19 @@
-# Rust build artifacts
 target/
-
-# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
-
-# OS
 Thumbs.db
 .DS_Store
-
-# Logs
+.claude/
 *.log
-
-# Temp
 *.tmp
 stdout.txt
 stderr.txt
-.claude/
-
-# Settings (local only, contains API keys/endpoints)
 settings.json
-
-# Models (too large)
 models/
-
-# Non-README markdown files
-PLAN.md
-RESEARCH.md
-
-# DLL files (keep only what we copy to release)
+release/
+sherpa_dll/
 *.dll
+*.exe
 *.lib
-# Keep sherpa-onnx-c-api.dll, onnxruntime.dll in release for local dev
-!target/release/sherpa-onnx-c-api.dll
-!target/release/onnxruntime.dll
-!target/release/onnxruntime_providers_shared.dll
-
-# Sherpa extracted files (only need DLL, header, not binaries)
-sherpa_dll/sherpa-onnx-*/bin/*.exe
-sherpa_dll/sherpa-onnx-*/lib/*.lib
-sherpa_dll/*.tar.bz2
