@@ -27,6 +27,7 @@ jobs:
 
           Copy-Item target/release/audio-input.exe $pkg/
           Copy-Item assets/hotwords.yaml $pkg/
+          Copy-Item assets/sherpa-onnx-offline.exe $pkg/
           Copy-Item settings.example.json $pkg/
 
           # INSTALL.txt with model & config instructions

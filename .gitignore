@@ -17,3 +17,4 @@ sherpa_dll/
 *.dll
 *.exe
 *.lib
+!assets/sherpa-onnx-offline.exe
