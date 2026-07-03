@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,audio_input=info,cpal=warn,mio=warn,want=warn,reqwest=warn,hyper=warn,tokio=warn"))
         .format_timestamp_millis()
         .init();
 
