@@ -1,4 +1,4 @@
-//! 音频deviceSelect — 输入 + 输出device交互式Select
+//! 音频设备选择 — 输入 + 输出设备交互式选择
 
 use cpal::traits::{DeviceTrait, HostTrait};
 use std::io::{self, Write};
@@ -12,10 +12,10 @@ pub struct AudioDevice {
     pub is_default: bool,
 }
 
-/// 列出Input device
+/// 列出输入设备
 pub fn list_input_devices() -> Vec<AudioDevice> { list_devices(true) }
 
-/// 列出输出device
+/// 列出输出设备
 pub fn list_output_devices() -> Vec<AudioDevice> { list_devices(false) }
 
 fn list_devices(input: bool) -> Vec<AudioDevice> {
@@ -50,7 +50,7 @@ fn list_devices(input: bool) -> Vec<AudioDevice> {
     devices
 }
 
-/// 交互式Selectdevice (先读环境变量，否则打印列表让用户选)
+/// 交互式选择设备 (先读环境变量，否则打印列表让用户选)
 pub fn resolve_input_device() -> i32 { resolve("输入", true) }
 pub fn resolve_output_device() -> i32 { resolve("输出", false) }
 
@@ -65,46 +65,46 @@ fn resolve(label: &str, input: bool) -> i32 {
 
     println!();
     println!("╔══════════════════════════════════════╗");
-    println!("║  Select{}device                      ║", label);
+    println!("║  🎧 选择{}设备                      ║", label);
     println!("╠══════════════════════════════════════╣");
     for d in &devices {
-        let mark = if d.is_default { " Default" } else { "" };
+        let mark = if d.is_default { " ⭐默认" } else { "" };
         let name_short = if d.name.len() > 36 { format!("{}...", &d.name[..33]) } else { d.name.clone() };
         println!("║  [{}] {} ({}ch {}Hz){}", d.id, name_short, d.channels, d.sample_rate, mark);
     }
-    println!("║  [D] 使用系统Default                   ║");
+    println!("║  [D] 使用系统默认                   ║");
     println!("╚══════════════════════════════════════╝");
-    print!("  {}device编号或 D → ", label);
+    print!("  {}设备编号或 D → ", label);
     let _ = io::stdout().flush();
 
     let mut user_input = String::new();
     if io::stdin().read_line(&mut user_input).is_ok() {
         let t = user_input.trim();
-        if t.eq_ignore_ascii_case("d") || t.is_empty() { println!("  Default\r\n"); return -1; }
+        if t.eq_ignore_ascii_case("d") || t.is_empty() { println!("  ✅ 默认\r\n"); return -1; }
         if let Ok(n) = t.parse::<i32>() {
             if n >= 0 && (n as usize) < devices.len() {
-                println!("  {}\r\n", devices[n as usize].name);
+                println!("  ✅ {}\r\n", devices[n as usize].name);
                 return n;
             }
         }
     }
-    println!("  无效，用Default\r\n");
+    println!("  ⚠️ 无效，用默认\r\n");
     -1
 }
 
-/// 获取device名称
+/// 获取设备名称
 pub fn input_device_name(id: i32) -> String { device_name(id, true) }
 pub fn output_device_name(id: i32) -> String { device_name(id, false) }
 
 fn device_name(id: i32, input: bool) -> String {
-    if id < 0 { return "系统Default".to_string(); }
+    if id < 0 { return "系统默认".to_string(); }
     for d in &list_devices(input) {
         if d.id == id as usize { return d.name.clone(); }
     }
     format!("Device {}", id)
 }
 
-/// 获取输出device（cpal Device）
+/// 获取输出设备（cpal Device）
 pub fn get_output_device(id: i32) -> Option<cpal::Device> {
     let host = cpal::default_host();
     if id < 0 {

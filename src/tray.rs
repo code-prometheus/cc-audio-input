@@ -1,5 +1,5 @@
-//! System tray - Shell_NotifyIconW
-//! Tray icon + right-click(copy/exit) + tooltip
+//! 系统托盘 — Shell_NotifyIconW
+//! 托盘图标 + 右键(拷贝/退出) + show_notification 更新 tooltip
 
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,7 +24,7 @@ impl TrayManager {
 
         std::thread::spawn(move || run_tray(tip, run));
 
-        info!("Tray created: {}", tooltip);
+        info!("📌 托盘已创建: {}", tooltip);
         Ok((Self { last_result: lr, running }, last_result))
     }
 
@@ -38,7 +38,7 @@ impl TrayManager {
     }
 
     pub fn show_notification(&self, _title: &str, _body: &str) {
-        info!("{}: {}", _title, _body);
+        info!("💬 {}: {}", _title, _body);
     }
 }
 
@@ -119,8 +119,8 @@ unsafe extern "system" fn tray_wndproc(hwnd: windows::Win32::Foundation::HWND, m
             let mut pt = windows::Win32::Foundation::POINT::default();
             let _ = GetCursorPos(&mut pt);
             let menu = CreatePopupMenu().unwrap_or(HMENU(std::ptr::null_mut()));
-            let copy_text: Vec<u16> = "Copy last result\0".encode_utf16().collect();
-            let exit_text: Vec<u16> = "Exit\0".encode_utf16().collect();
+            let copy_text: Vec<u16> = "📋 拷贝最后结果\0".encode_utf16().collect();
+            let exit_text: Vec<u16> = "❌ 退出\0".encode_utf16().collect();
             let _ = AppendMenuW(menu, MF_STRING, IDM_COPY, PCWSTR::from_raw(copy_text.as_ptr()));
             let _ = AppendMenuW(menu, MF_STRING, IDM_EXIT, PCWSTR::from_raw(exit_text.as_ptr()));
             let _ = SetForegroundWindow(hwnd);
@@ -140,7 +140,7 @@ unsafe extern "system" fn tray_wndproc(hwnd: windows::Win32::Foundation::HWND, m
 }
 
 unsafe fn tray_copy() {
-    let text = G_LAST_RESULT.as_ref().and_then(|lr| lr.lock().ok()).map(|r| r.clone()).unwrap_or_else(|| "(empty)".to_string());
+    let text = G_LAST_RESULT.as_ref().and_then(|lr| lr.lock().ok()).map(|r| r.clone()).unwrap_or_else(|| "(空)".to_string());
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let size = wide.len() * 2;
     if let Ok(hmem) = windows::Win32::System::Memory::GlobalAlloc(windows::Win32::System::Memory::GMEM_MOVEABLE, size) {

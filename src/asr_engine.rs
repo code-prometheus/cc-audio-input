@@ -24,11 +24,11 @@ impl AsrEngine {
 
         if !model_path.exists() {
             warn!("SenseVoice 模型不存在: {:?}", model_path);
-            return Err(anyhow::anyhow!("model file not found"));
+            return Err(anyhow::anyhow!("模型文件未找到"));
         }
         if !tokens_path.exists() {
             warn!("tokens.txt 不存在: {:?}", tokens_path);
-            return Err(anyhow::anyhow!("tokens.txt not found"));
+            return Err(anyhow::anyhow!("tokens.txt 未找到"));
         }
 
         // 查找 sherpa-onnx-offline.exe
@@ -43,11 +43,11 @@ impl AsrEngine {
             .unwrap_or_else(|| Path::new("sherpa-onnx-offline.exe").to_path_buf());
 
         if !sherpa_exe.exists() {
-            warn!("sherpa-onnx-offline.exe not found: {:?}", sherpa_exe);
-            return Err(anyhow::anyhow!("sherpa-onnx-offline.exe not found"));
+            warn!("sherpa-onnx-offline.exe 未找到: {:?}", sherpa_exe);
+            return Err(anyhow::anyhow!("sherpa-onnx-offline.exe 未找到"));
         }
 
-        info!("SenseVoice CLI: {:?}", sherpa_exe);
+        info!("🔧 SenseVoice CLI: {:?}", sherpa_exe);
         info!("   模型: {:?}", model_path);
 
         Ok(Self { model_path, tokens_path, sherpa_exe })
@@ -77,14 +77,14 @@ impl AsrEngine {
                 wav_str.to_string(),
             ])
             .output()
-            .context("sherpa-onnx-offline.exe failed")?;
+            .context("执行 sherpa-onnx-offline.exe 失败")?;
 
         // 3. 清理临时文件
         let _ = std::fs::remove_file(&wav_path);
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("ASR failed: {}", stderr));
+            return Err(anyhow::anyhow!("ASR 识别失败: {}", stderr));
         }
 
         // sherpa-onnx-offline 输出到 stdout
