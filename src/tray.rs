@@ -119,8 +119,8 @@ unsafe extern "system" fn tray_wndproc(hwnd: windows::Win32::Foundation::HWND, m
             let mut pt = windows::Win32::Foundation::POINT::default();
             let _ = GetCursorPos(&mut pt);
             let menu = CreatePopupMenu().unwrap_or(HMENU(std::ptr::null_mut()));
-            let copy_text: Vec<u16> = "📋 拷贝最后结果\0".encode_utf16().collect();
-            let exit_text: Vec<u16> = "❌ 退出\0".encode_utf16().collect();
+            let copy_text: Vec<u16> = "Copy last result\0".encode_utf16().collect();
+            let exit_text: Vec<u16> = "Exit\0".encode_utf16().collect();
             let _ = AppendMenuW(menu, MF_STRING, IDM_COPY, PCWSTR::from_raw(copy_text.as_ptr()));
             let _ = AppendMenuW(menu, MF_STRING, IDM_EXIT, PCWSTR::from_raw(exit_text.as_ptr()));
             let _ = SetForegroundWindow(hwnd);
