@@ -69,7 +69,6 @@ fn main() {
                 let is_rec = is_rec.clone();
                 let audio_buf = audio_buf.clone();
                 std::thread::spawn(move || {
-                    // ★ 三次尖锐短蜂鸣: "哔-哔-哔" — 清晰提示开始讲话
                     #[cfg(windows)]
                     unsafe {
                         let beep = windows::Win32::System::Diagnostics::Debug::Beep;
