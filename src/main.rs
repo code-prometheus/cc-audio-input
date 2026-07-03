@@ -16,7 +16,13 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info,audio_input=info,cpal=warn,mio=warn,want=warn,reqwest=warn,hyper=warn,tokio=warn"))
+    let rust_log = std::env::var("RUST_LOG").unwrap_or_default();
+    let filter = if rust_log.is_empty() {
+        "info,audio_input=info,cpal=warn,mio=warn,want=warn,reqwest=warn,hyper=warn,tokio=warn".to_string()
+    } else {
+        rust_log
+    };
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(&filter))
         .format_timestamp_millis()
         .init();
 
