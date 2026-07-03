@@ -140,7 +140,7 @@ unsafe extern "system" fn tray_wndproc(hwnd: windows::Win32::Foundation::HWND, m
 }
 
 unsafe fn tray_copy() {
-    let text = G_LAST_RESULT.as_ref().and_then(|lr| lr.lock().ok()).map(|r| r.clone()).unwrap_or_else(|| "(空)".to_string());
+    let text = G_LAST_RESULT.as_ref().and_then(|lr| lr.lock().ok()).map(|r| r.clone()).unwrap_or_else(|| "(empty)".to_string());
     let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
     let size = wide.len() * 2;
     if let Ok(hmem) = windows::Win32::System::Memory::GlobalAlloc(windows::Win32::System::Memory::GMEM_MOVEABLE, size) {
