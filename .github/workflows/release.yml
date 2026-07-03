@@ -41,9 +41,10 @@ jobs:
           Write-Host "Created $zip"
 
       - name: Upload to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: audio-input-*.zip
-          generate_release_notes: true
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem audio-input-*.zip | Select-Object -First 1
+          gh release delete v0.3.0 --yes --cleanup-tag 2>$null
+          gh release create ${{ github.ref_name }} $zip --title "${{ github.ref_name }}" --generate-notes
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
