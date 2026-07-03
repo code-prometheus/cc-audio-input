@@ -1,6 +1,10 @@
-//! CLI 热词管理
+//! CLI 热词管理 + 本地目录名扫描
+//!
+//! 从 hotwords.yaml 加载术语表，提供本地快速音近纠正 + LLM 上下文构建。
+//! 启动时自动扫描本地目录名，生成首字母变体映射。
 
 use anyhow::{Context, Result};
+use log::info;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::Path;
@@ -20,11 +24,11 @@ pub struct Hotwords {
     words: Vec<String>,
     phonetic_map: HashMap<String, String>,
     filler_words: Vec<String>,
+    fs_names: Vec<String>,
 }
 
 impl Hotwords {
     pub fn load(path: &Path) -> Result<Self> {
-        // 尝试多个路径
         let candidates = [
             path.to_path_buf(),
             Path::new("assets/hotwords.yaml").to_path_buf(),
@@ -46,10 +50,23 @@ impl Hotwords {
         words.sort();
         words.dedup();
 
+        let mut phonetic_map = hf.phonetic_corrections.unwrap_or_default();
+
+        // 扫描本地文件系统，生成目录名首字母 → 原名映射
+        let fs_names = scan_local_dirs();
+        info!("本地扫描到 {} 个目录名", fs_names.len());
+        for name in &fs_names {
+            let first_char = name.chars().next().map(|c| c.to_lowercase().to_string()).unwrap_or_default();
+            if !first_char.is_empty() && first_char != name.to_lowercase() {
+                phonetic_map.entry(first_char).or_insert_with(|| name.clone());
+            }
+        }
+
         Ok(Self {
             words,
-            phonetic_map: hf.phonetic_corrections.unwrap_or_default(),
+            phonetic_map,
             filler_words: hf.filler_words.unwrap_or_default(),
+            fs_names,
         })
     }
 
@@ -107,6 +124,48 @@ impl Hotwords {
             ctx.push_str(&pairs.join("; "));
             ctx.push('\n');
         }
+        if !self.fs_names.is_empty() {
+            ctx.push_str("本地目录: ");
+            ctx.push_str(&self.fs_names.iter().take(20).map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
+            ctx.push('\n');
+        }
         ctx
+    }
+}
+
+fn scan_local_dirs() -> Vec<String> {
+    let scan_dirs: Vec<std::path::PathBuf> = [
+        std::env::current_dir().ok(),
+        dirs_next("DESKTOP"),
+        dirs_next("DOCUMENTS"),
+        dirs_next("DOWNLOAD"),
+        std::env::var("USERPROFILE").ok().map(std::path::PathBuf::from),
+        std::env::var("HOMEDRIVE").ok().map(|d| std::path::PathBuf::from(d + "\\")),
+    ].into_iter().flatten().collect();
+
+    let mut names = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for dir in &scan_dirs {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) { continue; }
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with('.') || name.starts_with('$') || name == "System Volume Information" { continue; }
+                if seen.insert(name.clone()) {
+                    names.push(name);
+                }
+            }
+        }
+    }
+    names
+}
+
+fn dirs_next(name: &str) -> Option<std::path::PathBuf> {
+    let home = std::env::var("USERPROFILE").ok().map(std::path::PathBuf::from)?;
+    match name {
+        "DESKTOP" => Some(home.join("Desktop")),
+        "DOCUMENTS" => Some(home.join("Documents")),
+        "DOWNLOAD" => Some(home.join("Downloads")),
+        _ => None,
     }
 }
