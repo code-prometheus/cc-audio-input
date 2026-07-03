@@ -32,7 +32,7 @@ fn main() {
     let input_id = device_selector::resolve_input_device();
     info!("🎤 输入设备: {}", device_selector::input_device_name(input_id));
 
-    let asr = asr_engine::AsrEngine::new(&cfg.asr.model_dir)
+    let asr = asr_engine::AsrEngine::new(&cfg.model_dir())
         .map(Some).unwrap_or_else(|e| { warn!("ASR 不可用: {} — 占位", e); None });
 
     let corrector = corrector::Corrector::new(&cfg.llm, &hw)

@@ -47,12 +47,6 @@ env_logger = "0.11"
 # Error handling
 anyhow = "1"
 
-# Dynamic library loading for Sherpa FFI
-libloading = "0.8"
-
-# Config persistence
-directories = "5"
-
 [profile.release]
 opt-level = "z"
 lto = true

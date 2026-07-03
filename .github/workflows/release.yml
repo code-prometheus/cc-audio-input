@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          $pkg = "audio-input"
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          Copy-Item target/release/audio-input.exe $pkg/
+          Copy-Item assets/hotwords.yaml $pkg/
+          Copy-Item settings.example.json $pkg/
+          Copy-Item LICENSE $pkg/ 2>$null
+
+          # 写一个README说明模型下载
+          @"
+          模型下载
+          ========
+          下载 SenseVoice int8 模型并解压到 models/sense-voice-int8/:
+          https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2
+
+          配置 LLM
+          ========
+          复制 settings.example.json 为 settings.json，修改 LLM 地址和密钥。
+          "@ | Out-File -FilePath $pkg/INSTALL.txt -Encoding utf8
+
+          $zip = "audio-input-${{ github.ref_name }}-win-x64.zip"
+          Compress-Archive -Path $pkg -DestinationPath $zip
+          Write-Host "Created $zip"
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: audio-input-*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
