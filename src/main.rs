@@ -123,7 +123,7 @@ fn main() {
                     Err(e) => error!("Paste: {}", e),
                 }
                 audio_buf.lock().unwrap().clear();
-                tray.show_notification("audio-input", "pasted到CLI");
+                tray.show_notification("audio-input", "Pasted to CLI");
                 info!("Ready");
             }
         },
