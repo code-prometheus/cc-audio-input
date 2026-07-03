@@ -1,7 +1,7 @@
-//! LLM 修正器 — 仅 OpenAI 兼容接口
+//! LLM corrector - OpenAI compatible API
 //!
-//! 从 settings.json 读取 API 地址、模型名、API Key。
-//! 将 ASR 原始文本 + CLI 热词上下文发送给 LLM 修正。
+//! Read API url, model, key from settings.json。
+//! Send ASR text + hotword context to LLM for correction。
 
 use anyhow::{Context, Result};
 use log::info;
@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::config::LlmConfig;
 use crate::hotwords::Hotwords;
 
-/// 修正器
+/// Corrector
 pub struct Corrector {
     settings: LlmConfig,
     hotwords: Hotwords,
@@ -59,7 +59,7 @@ impl Corrector {
         }
 
         let client = builder.build()
-            .context("创建 HTTP 客户端失败")?;
+            .context("Failed to create HTTP client")?;
 
         Ok(Self {
             settings: settings.clone(),
@@ -68,9 +68,9 @@ impl Corrector {
         })
     }
 
-    /// 执行文本修正
+    /// Execute text correction
     pub fn correct(&self, raw_text: &str) -> Result<String> {
-        // 先本地快速修正
+        // Local quick correct first
         let text = self.hotwords.quick_correct(raw_text);
 
         let prompt = self.build_correction_prompt(&text);
@@ -92,7 +92,7 @@ impl Corrector {
         };
 
         let url = format!("{}/chat/completions", self.settings.base_url.trim_end_matches('/'));
-        info!("🔧 调用 LLM: {} @ {}", self.settings.model, url);
+        info!("调用 LLM: {} @ {}", self.settings.model, url);
 
         let mut req = self.client
             .post(&url)
@@ -105,16 +105,16 @@ impl Corrector {
         }
 
         let response = req.send()
-            .context(format!("LLM API 请求失败: {}", url))?;
+            .context(format!("LLM API request failed: {}", url))?;
 
         let status = response.status();
         if !status.is_success() {
             let body = response.text().unwrap_or_default();
-            return Err(anyhow::anyhow!("LLM API 返回错误 {}: {}", status, body));
+            return Err(anyhow::anyhow!("LLM API returned error {}: {}", status, body));
         }
 
         let result: ChatResponse = response.json()
-            .context("LLM API 响应解析失败")?;
+            .context("LLM API response parse failed")?;
 
         let corrected = result.choices
             .first()
@@ -127,8 +127,8 @@ impl Corrector {
     fn build_correction_prompt(&self, raw_text: &str) -> String {
         let hotwords_context = self.hotwords.get_prompt_context();
         format!(
-            "你是一个CLI命令修正器。用户的语音通过ASR识别得到了原始文本。请修正以下识别文本：\n\
-             1. 修正CLI工具/命令的拼写错误（参考已知术语表）\n\
+            "你是一个CLI命令Corrector。用户的语音通过ASR识别得到了原始文本。请修正以下识别文本：\n\
+             1. 修正CLI tools/命令的拼写错误（参考已知术语表）\n\
              2. 标点符号和大小写规范化\n\
              3. 移除口语化填充词\n\
              4. 将音近的错误词替换为正确的CLI术语\n\n\

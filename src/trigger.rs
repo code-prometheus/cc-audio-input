@@ -16,7 +16,7 @@ where
     let on_trigger = Arc::new(on_trigger);
     let on_release = Arc::new(on_release);
 
-    info!("🖱️  鼠标左键 {}ms 触发", hold_ms);
+    info!("  Left mouse {}ms trigger", hold_ms);
 
     loop {
         // ── 阶段1: 等待鼠标按下并持续 hold_ms ──
@@ -30,7 +30,7 @@ where
 
         let press_time = Instant::now();
         let mut triggered_ms = false;
-        debug!("左键按下，等待 {}ms...", hold_ms);
+        debug!("LButton down, waiting {}ms...", hold_ms);
 
         while unsafe {
             (GetAsyncKeyState(VK_LBUTTON.0 as i32) & 0x8000u16 as i16) != 0
@@ -38,7 +38,7 @@ where
             let elapsed = press_time.elapsed().as_millis() as u64;
             if !triggered_ms && elapsed >= hold_ms {
                 triggered_ms = true;
-                info!("🖱️✅ 触发录音 ({}ms)", elapsed);
+                info!("trigger recording ({}ms)", elapsed);
 
                 // ★ 释放检测循环，让鼠标恢复自由
                 // ★ 播放提示音 + 开始录音
@@ -54,7 +54,7 @@ where
                         (GetAsyncKeyState(VK_LBUTTON.0 as i32) & 0x8000u16 as i16) != 0
                     };
                     if !still_down {
-                        info!("🖱️⬆ 松开→识别流程");
+                        info!("⬆ release -> recognize");
                         on_release();
                         break;
                     }
@@ -69,7 +69,7 @@ where
         // 如果短按（没触发3秒），跳过
         if !triggered_ms {
             let elapsed = press_time.elapsed().as_millis() as u64;
-            debug!("短按{}ms忽略", elapsed);
+            debug!("short press {}ms ignored", elapsed);
         }
     }
 }

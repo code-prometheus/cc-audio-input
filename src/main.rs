@@ -1,5 +1,5 @@
 //! audio-input v0.3
-//! 按住鼠标左键3秒 → 录音 → SenseVoice ASR → LLM修正 → Ctrl+V
+//! Hold left mouse 1.5s -> Record -> SenseVoice ASR -> LLM -> Ctrl+V
 
 mod config;
 mod trigger;
@@ -23,27 +23,27 @@ fn main() {
         .parse_default_env()
         .init();
 
-    info!("🚀 audio-input v0.3");
+    info!("audio-input v0.3");
 
     let cfg = config::AppConfig::load();
-    info!("✅ LLM: {} @ {}", cfg.llm.model, cfg.llm.base_url);
+    info!("LLM: {} @ {}", cfg.llm.model, cfg.llm.base_url);
 
     let hw = hotwords::Hotwords::load(
         &std::path::PathBuf::from("hotwords.yaml")
     ).expect("Failed to load hotwords.yaml");
 
     let input_id = device_selector::resolve_input_device();
-    info!("🎤 输入设备: {}", device_selector::input_device_name(input_id));
+    info!("Input device: {}", device_selector::input_device_name(input_id));
 
     let asr = asr_engine::AsrEngine::new(&cfg.model_dir())
-        .map(Some).unwrap_or_else(|e| { warn!("ASR 不可用: {} — 占位", e); None });
+        .map(Some).unwrap_or_else(|e| { warn!("ASR unavailable: {} — 占位", e); None });
 
     let corrector = corrector::Corrector::new(&cfg.llm, &hw)
         .expect("Failed LLM corrector");
-    info!("✅ LLM corrector ready");
+    info!("LLM corrector ready");
 
     let (tray_mgr, last_result) = tray::TrayManager::create("audio-input 🎤")
-        .unwrap_or_else(|e| { warn!("托盘失败: {}", e); (tray::TrayManager::stub(), Arc::new(Mutex::new(String::new()))) });
+        .unwrap_or_else(|e| { warn!("Tray failed: {}", e); (tray::TrayManager::stub(), Arc::new(Mutex::new(String::new()))) });
     let tray_mgr = Arc::new(tray_mgr);
 
     let paster = clipboard_paste::ClipboardPaster::new();
@@ -53,26 +53,26 @@ fn main() {
     let sample_rate = 16000u32;
     let channels = 1u16;
 
-    info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-    info!("🎤 Ready! Hold left mouse {}s to record", hold_ms / 1000);
-    info!("   输入设备: {}", device_selector::input_device_name(input_id));
-    info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    info!("");
+    info!("Ready! Hold left mouse {}s to record", hold_ms / 1000);
+    info!("   Input device: {}", device_selector::input_device_name(input_id));
+    info!("");
 
     trigger::listen(
         hold_ms,
-        // on_trigger: 按住3秒 → 托盘气泡"录音中" → 开始录音
+        // on_trigger: 按住3秒 → 托盘气泡"Recording" → 开始录音
         {
             let is_rec = is_recording.clone();
             let audio_buf = audio_buffer.clone();
             let tray = tray_mgr.clone();
             move || {
-                tray.show_notification("audio-input", "🔴 录音中...");
+                tray.show_notification("audio-input", "Recording...");
                 is_rec.store(true, Ordering::SeqCst);
-                info!("🔴 Recording...");
+                info!("Recording...");
                 let is_rec = is_rec.clone();
                 let audio_buf = audio_buf.clone();
                 std::thread::spawn(move || {
-                    // ★ 三次尖锐短蜂鸣: "哔-哔-哔" — 清晰提示开始讲话
+                    // ★ three short beeps to prompt speaking
                     #[cfg(windows)]
                     unsafe {
                         let beep = windows::Win32::System::Diagnostics::Debug::Beep;
@@ -100,18 +100,18 @@ fn main() {
                 std::thread::sleep(std::time::Duration::from_millis(200));
 
                 let audio_data = audio_buf.lock().unwrap().clone();
-                if audio_data.is_empty() { info!("⚠️  No audio"); return; }
+                if audio_data.is_empty() { info!("No audio"); return; }
                 let dur = audio_data.len() as f64 / sample_rate as f64;
-                info!("📊 Audio: {:.1}s", dur);
+                info!("Audio: {:.1}s", dur);
 
                 let raw = match &asr {
                     Some(e) => e.recognize(&audio_data, sample_rate).unwrap_or_else(|e| { error!("ASR: {}", e); "[ASR Error]".into() }),
-                    None => format!("[占位-{:.1}s]", dur),
+                    None => format!("[placeholder-{:.1}s]", dur),
                 };
-                info!("📝 ASR: {}", raw);
+                info!("ASR: {}", raw);
 
                 let final_text = match corrector.correct(&raw) {
-                    Ok(t) => { info!("🔧 Corrected: {}", t); t }
+                    Ok(t) => { info!("Corrected: {}", t); t }
                     Err(e) => { warn!("LLM failed: {}", e); raw }
                 };
 
@@ -119,12 +119,12 @@ fn main() {
                 if let Ok(mut lr) = last_res.lock() { *lr = final_text.clone(); }
 
                 match paster.paste(&final_text) {
-                    Ok(()) => info!("📋✅ Pasted: {}", final_text),
+                    Ok(()) => info!("Pasted: {}", final_text),
                     Err(e) => error!("Paste: {}", e),
                 }
                 audio_buf.lock().unwrap().clear();
-                tray.show_notification("audio-input", "✅ 已粘贴到CLI");
-                info!("✅ Ready");
+                tray.show_notification("audio-input", "pasted到CLI");
+                info!("Ready");
             }
         },
     );

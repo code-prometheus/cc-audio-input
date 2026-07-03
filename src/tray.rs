@@ -1,5 +1,5 @@
-//! 系统托盘 — Shell_NotifyIconW
-//! 托盘图标 + 右键(拷贝/退出) + show_notification 更新 tooltip
+//! System tray - Shell_NotifyIconW
+//! Tray icon + right-click(copy/exit) + tooltip
 
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -24,7 +24,7 @@ impl TrayManager {
 
         std::thread::spawn(move || run_tray(tip, run));
 
-        info!("📌 托盘已创建: {}", tooltip);
+        info!("Tray created: {}", tooltip);
         Ok((Self { last_result: lr, running }, last_result))
     }
 
@@ -38,7 +38,7 @@ impl TrayManager {
     }
 
     pub fn show_notification(&self, _title: &str, _body: &str) {
-        info!("💬 {}: {}", _title, _body);
+        info!("{}: {}", _title, _body);
     }
 }
 

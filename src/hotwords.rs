@@ -1,7 +1,7 @@
-//! CLI 热词管理 + 本地目录名扫描
+//! CLI hotwords + local dir name scanning
 //!
-//! 从 hotwords.yaml 加载术语表，提供本地快速音近纠正 + LLM 上下文构建。
-//! 启动时自动扫描本地目录名，生成首字母变体映射。
+//! Load hotwords.yaml, local phonetic correction + LLM context。
+//! Auto-scan local dir names at startup, generate initial-character mappings。
 
 use anyhow::{Context, Result};
 use log::info;
@@ -35,11 +35,11 @@ impl Hotwords {
             Path::new("hotwords.yaml").to_path_buf(),
         ];
         let found = candidates.iter().find(|p| p.exists())
-            .ok_or_else(|| anyhow::anyhow!("找不到热词文件，搜索路径: {:?}", candidates))?;
+            .ok_or_else(|| anyhow::anyhow!("hotwords.yaml not found, search paths: {:?}", candidates))?;
         let content = std::fs::read_to_string(found)
-            .with_context(|| format!("无法读取热词文件: {:?}", found))?;
+            .with_context(|| format!("failed to read hotwords file: {:?}", found))?;
         let hf: HotwordsFile = serde_yaml::from_str(&content)
-            .with_context(|| format!("热词YAML解析失败: {:?}", path))?;
+            .with_context(|| format!("YAML parse failed: {:?}", path))?;
 
         let mut words = Vec::new();
         for cat in [&hf.claude_code_commands, &hf.cli_tools, &hf.common_options, &hf.project_specific] {
@@ -52,9 +52,9 @@ impl Hotwords {
 
         let mut phonetic_map = hf.phonetic_corrections.unwrap_or_default();
 
-        // 扫描本地文件系统，生成目录名首字母 → 原名映射
+        // Scan local filesystem, generate first-char -> dirname mappings
         let fs_names = scan_local_dirs();
-        info!("本地扫描到 {} 个目录名", fs_names.len());
+        info!("local scan found {} dir names", fs_names.len());
         for name in &fs_names {
             let first_char = name.chars().next().map(|c| c.to_lowercase().to_string()).unwrap_or_default();
             if !first_char.is_empty() && first_char != name.to_lowercase() {
@@ -113,19 +113,19 @@ impl Hotwords {
             .filter(|w| !w.starts_with('/') && !w.starts_with('-'))
             .take(50).map(|s| s.as_str()).collect();
         if !tools.is_empty() {
-            ctx.push_str("CLI工具: ");
+            ctx.push_str("CLI tools: ");
             ctx.push_str(&tools.join(", "));
             ctx.push('\n');
         }
         if !self.phonetic_map.is_empty() {
-            ctx.push_str("音近修正: ");
+            ctx.push_str("Phonetic corrections: ");
             let pairs: Vec<String> = self.phonetic_map.iter().take(20)
                 .map(|(k, v)| format!("{}→{}", k, v)).collect();
             ctx.push_str(&pairs.join("; "));
             ctx.push('\n');
         }
         if !self.fs_names.is_empty() {
-            ctx.push_str("本地目录: ");
+            ctx.push_str("Local dirs: ");
             ctx.push_str(&self.fs_names.iter().take(20).map(|s| s.as_str()).collect::<Vec<_>>().join(", "));
             ctx.push('\n');
         }

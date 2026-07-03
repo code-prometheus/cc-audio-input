@@ -1,4 +1,4 @@
-//! 配置模块 — 从 exe 同级 settings.json 读取，不存在则用默认值 + 环境变量
+//! Config: reads settings.json beside exe, falls back to defaults + env
 
 use serde::Deserialize;
 use std::path::PathBuf;

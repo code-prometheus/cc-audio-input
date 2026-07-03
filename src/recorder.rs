@@ -22,14 +22,14 @@ pub fn record_blocking(
 
     let host = cpal::default_host();
     let device = if config.device_id < 0 {
-        host.default_input_device().context("未找到麦克风")?
+        host.default_input_device().context("Microphone not found")?
     } else {
         let mut devices = host.input_devices()?;
-        devices.nth(config.device_id as usize).context(format!("设备ID={}", config.device_id))?
+        devices.nth(config.device_id as usize).context(format!("deviceID={}", config.device_id))?
     };
 
     let dev_name = device.name()?;
-    info!("🎤 设备: {}", dev_name);
+    info!("device: {}", dev_name);
 
     // ★ 构造精确的配置: 16kHz, mono, f32
     let target_config = cpal::StreamConfig {
@@ -38,19 +38,19 @@ pub fn record_blocking(
         buffer_size: cpal::BufferSize::Default,
     };
 
-    // 检查设备是否支持此配置，如果不支持则用默认配置（由 cpal 自动转换）
+    // 检查device是否支持此配置，如果不支持则用Default配置（由 cpal 自动转换）
     let supported = device.supported_input_configs()?
         .find(|c| c.channels() >= 1 && c.max_sample_rate() >= cpal::SampleRate(16000) && c.min_sample_rate() <= cpal::SampleRate(16000));
 
     let actual_config = match supported {
         Some(_sup_cfg) => {
-            info!("   设备支持 16kHz, 使用精确配置");
+            info!("   device支持 16kHz, 使用精确配置");
             target_config.clone()
         }
         None => {
-            // 设备不支持 16kHz — 让 cpal 用默认配置然后自动转换
+            // device不支持 16kHz — 让 cpal 用Default配置然后自动转换
             let def = device.default_input_config()?;
-            info!("   设备默认 {}Hz {}ch, cpal将自动转换为16kHz mono",
+            info!("   deviceDefault {}Hz {}ch, cpal将自动转换为16kHz mono",
                   def.sample_rate().0, def.channels());
             def.into()
         }
@@ -84,7 +84,7 @@ pub fn record_blocking(
                 }
             },
             move |e| {
-                error!("音频流错误: {}", e);
+                error!("Audio stream error: {}", e);
                 err_flag.store(true, Ordering::SeqCst);
                 *err_msg.lock().unwrap() = Some(e.to_string());
             },
@@ -93,13 +93,13 @@ pub fn record_blocking(
     };
 
     stream.play()?;
-    info!("🔴 录音中 (16kHz mono f32)");
+    info!("Recording (16kHz mono f32)");
 
     while is_recording.load(Ordering::SeqCst) {
         if err_flag.load(Ordering::SeqCst) {
             let msg = err_msg.lock().unwrap().clone();
             drop(stream);
-            return Err(anyhow::anyhow!("录音流错误: {}", msg.unwrap_or_default()));
+            return Err(anyhow::anyhow!("Audio stream error: {}", msg.unwrap_or_default()));
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
@@ -108,7 +108,7 @@ pub fn record_blocking(
 
     let samples = buffer.lock().unwrap().len();
     let duration = samples as f64 / 16000.0;
-    info!("⏹️  录音结束: {} 采样点, {:.1}s", samples, duration);
+    info!("Recording ended: {} samples, {:.1}s", samples, duration);
 
     Ok(())
 }
