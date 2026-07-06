@@ -9,7 +9,18 @@
 # ============================================================
 
 # ── Claude/AI 平台 ──
+# ★ 单字母/缩写 ASR 误识别 (ASR 常把整词识别成单个字母)
 claude_ai:
+  # Claude → "Q" / "K" / "clue" 等误识别
+  Q: Claude Code
+  q: Claude Code
+  queue: Claude
+  cue: Claude
+  K: Claude Code
+  clue: Claude
+  clued: Claude
+  claude: Claude
+  clode: Claude
   close: Claude
   cloud: Claude
   clod: Claude
@@ -19,6 +30,10 @@ claude_ai:
   克洛德: Claude
   close code: Claude Code
   cloud code: Claude Code
+  claude code: Claude Code
+  q code: Claude Code
+  queue code: Claude Code
+  # 模型名
   fable: Fable
   飞波: Fable
   飞博: Fable
@@ -34,30 +49,50 @@ claude_ai:
   haiku: Haiku
   海库: Haiku
   嗨库: Haiku
+  # Anthropic
   an throw pick: Anthropic
   an propic: Anthropic
   andropik: Anthropic
+  anthropic: Anthropic
+  # prompt / agent
   prompt: prompt
   prom: prompt
   prong: prompt
+  agent: agent
+  a gent: agent
+  诶镇: agent
 
 # ── 开发平台/工具 ──
+# ★ GitHub → "G" / "get hub" 等误识别
 dev_platform:
+  G: GitHub
+  g: GitHub
+  G hub: GitHub
+  Gee: GitHub
+  gee hub: GitHub
   get hub: GitHub
   github: GitHub
   gatehub: GitHub
   给塔布: GitHub
   鸡塔布: GitHub
+  # GitLab / Bitbucket
   get lab: GitLab
   getlab: GitLab
   gate lab: GitLab
   bit bucket: Bitbucket
+  # ★ VSCode → "V" / "vs" 误识别
+  V: VSCode
+  v: VSCode
+  v s: VSCode
   vs code: VSCode
   visa code: VSCode
+  we code: VSCode
+  # JetBrains
   web storm: WebStorm
   webstorm: WebStorm
   jet brains: JetBrains
   杰特布兰: JetBrains
+  # 终端/Shell
   terminal: Terminal
   power shell: PowerShell
   power show: PowerShell

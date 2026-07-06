@@ -66,27 +66,26 @@ impl Hotwords {
     pub fn phonetic_count(&self) -> usize { self.phonetic_map.len() }
 
     /// 本地快速音近词替换: 长匹配优先, case-insensitive
+    /// - 短词(≤2字符) 仅在词边界处替换 (避免 "Q" 误匹配 "Query")
+    /// - 长词(>2字符) 继续用子串匹配
     pub fn quick_correct(&self, text: &str) -> String {
         let mut result = text.to_string();
         let mut pairs: Vec<(&String, &String)> = self.phonetic_map.iter().collect();
-        pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len())); // 长匹配优先
 
         for (wrong, correct) in &pairs {
-            let lower_text = result.to_lowercase();
-            let lower_wrong = wrong.to_lowercase();
-            if let Some(pos) = lower_text.find(&lower_wrong) {
-                let end = pos + wrong.len();
-                let replacement = if result[pos..end].chars().next().map_or(false, |c| c.is_uppercase()) {
-                    let mut ch = correct.chars();
-                    if let Some(first) = ch.next() {
-                        format!("{}{}", first.to_uppercase(), ch.collect::<String>())
-                    } else {
-                        correct.to_string()
-                    }
-                } else {
-                    correct.to_string()
-                };
-                result.replace_range(pos..end, &replacement);
+            if wrong.len() <= 2 {
+                // ★ 短词: 只在独立词位置替换 (前后均为空格/标点/边界)
+                result = replace_word_boundary(&result, wrong, correct);
+            } else {
+                // 长词: 子串匹配
+                let lower_text = result.to_lowercase();
+                let lower_wrong = wrong.to_lowercase();
+                if let Some(pos) = lower_text.find(&lower_wrong) {
+                    let end = pos + wrong.len();
+                    let replacement = capitalize_match(&result[pos..end], correct);
+                    result.replace_range(pos..end, &replacement);
+                }
             }
         }
         result
@@ -111,5 +110,57 @@ impl Hotwords {
         }
 
         ctx
+    }
+}
+
+/// 词边界替换: 只在 wrong 是独立词时替换 (前后为空格/标点/字符串边界)
+fn replace_word_boundary(text: &str, wrong: &str, correct: &str) -> String {
+    let lower = text.to_lowercase();
+    let lower_wrong = wrong.to_lowercase();
+    let mut result = text.to_string();
+    let mut offset = 0isize;
+
+    for (pos, _) in lower.match_indices(&lower_wrong) {
+        let adj_pos = (pos as isize + offset) as usize;
+        if adj_pos >= result.len() { break; }
+
+        let prev_char = if adj_pos == 0 { None } else { result[..adj_pos].chars().last() };
+        let end = adj_pos + wrong.len();
+        let next_char = result[end..].chars().next();
+
+        let is_start = adj_pos == 0 || is_boundary_char(prev_char);
+        let is_end = end >= result.len() || is_boundary_char(next_char);
+
+        if is_start && is_end {
+            let replacement = capitalize_match(&result[adj_pos..end], correct);
+            let old_len = result.len();
+            result.replace_range(adj_pos..end, &replacement);
+            offset += result.len() as isize - old_len as isize;
+        }
+    }
+    result
+}
+
+/// 边界字符: 空格/标点 = 词边界
+fn is_boundary_char(c: Option<char>) -> bool {
+    match c {
+        Some(ch) => matches!(ch, ' ' | '\t' | '\n' | '.' | ',' | ';' | ':' | '?' | '!'
+                             | '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\'' | '/' | '\\' | '-'
+                             | '。' | '，' | '；' | '：' | '？' | '！'),
+        None => true,
+    }
+}
+
+/// 保持原文大小写风格
+fn capitalize_match(original: &str, correct: &str) -> String {
+    if original.chars().next().map_or(false, |c| c.is_uppercase()) {
+        let mut ch = correct.chars();
+        if let Some(first) = ch.next() {
+            format!("{}{}", first.to_uppercase(), ch.collect::<String>())
+        } else {
+            correct.to_string()
+        }
+    } else {
+        correct.to_string()
     }
 }
