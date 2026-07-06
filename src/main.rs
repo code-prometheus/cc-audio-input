@@ -109,14 +109,20 @@ fn main() {
                       dur, max_amp, mean_amp, nonzeros, audio_data.len());
 
                 let raw = match &asr {
-                    Some(e) => e.recognize(&audio_data, sample_rate).unwrap_or_else(|e| { error!("ASR: {}", e); "[ASR Error]".into() }),
-                    None => format!("[占位-{:.1}s]", dur),
+                    Some(e) => e.recognize(&audio_data, sample_rate).unwrap_or_else(|e| {
+                        error!("ASR: {}", e);
+                        format!("(ASR失败-{:.1}s)", dur)
+                    }),
+                    None => format!("(无ASR引擎-{:.1}s)", dur),
                 };
                 info!("📝 ASR: {}", raw);
 
                 let final_text = match corrector.correct(&raw) {
                     Ok(t) => { info!("🔧 Corrected: {}", t); t }
-                    Err(e) => { warn!("LLM failed: {}", e); raw }
+                    Err(e) => {
+                        warn!("LLM failed: {} — 直接输出ASR原文", e);
+                        format!("{}(LLM失效,原文输出)", raw)
+                    }
                 };
 
                 tray.update_result(&final_text);
