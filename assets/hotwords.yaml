@@ -1,22 +1,20 @@
 # ============================================================
-# Claude Code 编程语音 — 音近词修正热词库
-#
-# 设计原则:
-# 1. 所有条目必须是ASR常误识别的音近/形近替代词
-# 2. 目标词必须是编程/Claude Code场景高频术语
-# 3. 命令本身(/clear等)不需要, 那是打字输入的
-# 4. 分类只便于管理, LLM能看到的是音近映射表
+# Claude Code 编程语音 — 音近词修正热词库 (全量)
+# 设计原则: 所有条目=ASR误识别→正确编程术语
+# 上下文1M token 足够, 不惜代价确保准确性
 # ============================================================
 
-# ── Claude/AI 平台 ──
-# ★ 单字母/缩写 ASR 误识别 (ASR 常把整词识别成单个字母)
+# ── Claude/AI 平台 (单字母+音近+中文) ──
 claude_ai:
-  # Claude → "Q" / "K" / "clue" 等误识别
+  # ★ 单字母/缩写 (ASR 最高频误识别)
   Q: Claude Code
   q: Claude Code
+  K: Claude Code
+  k: Claude Code
+  C: Claude Code
+  c: Claude Code
   queue: Claude
   cue: Claude
-  K: Claude Code
   clue: Claude
   clued: Claude
   claude: Claude
@@ -25,46 +23,128 @@ claude_ai:
   cloud: Claude
   clod: Claude
   clawed: Claude
+  claus: Claude
+  claws: Claude
+  cloz: Claude
+  closs: Claude
+  claud: Claude
+  clowd: Claude
+  glaude: Claude
+  claudia: Claude
   克劳德: Claude
   科洛德: Claude
   克洛德: Claude
+  客罗德: Claude
+  可罗德: Claude
+  柯洛德: Claude
+  克劳的: Claude
   close code: Claude Code
   cloud code: Claude Code
   claude code: Claude Code
   q code: Claude Code
   queue code: Claude Code
+  k code: Claude Code
+  c code: Claude Code
+  clue code: Claude Code
+  clode code: Claude Code
+  claus code: Claude Code
+  claws code: Claude Code
+  closecoat: Claude Code
+  cloud coat: Claude Code
   # 模型名
   fable: Fable
   飞波: Fable
   飞博: Fable
   菲博: Fable
+  斐波: Fable
+  费伯: Fable
+  法伯: Fable
+  非博: Fable
+  fable five: Fable 5
+  飞波 five: Fable 5
   opus: Opus
   欧普斯: Opus
   奥普斯: Opus
   欧布斯: Opus
+  欧普: Opus
+  奥普: Opus
+  欧帕斯: Opus
+  欧珀斯: Opus
+  opus four eight: Opus 4.8
+  opus four point eight: Opus 4.8
+  欧普斯四八: Opus 4.8
   sonnet: Sonnet
   索尼特: Sonnet
   索内特: Sonnet
   桑尼特: Sonnet
+  索尼: Sonnet
+  索内: Sonnet
+  桑奈: Sonnet
+  索纳: Sonnet
+  sonnet four six: Sonnet 4.6
+  sonnet four point six: Sonnet 4.6
+  索尼特四六: Sonnet 4.6
   haiku: Haiku
   海库: Haiku
   嗨库: Haiku
+  海酷: Haiku
+  嗨酷: Haiku
+  haiku four five: Haiku 4.5
+  haiku four point five: Haiku 4.5
+  海库四五: Haiku 4.5
+  # 模型选择相关
+  fast mode: /fast
+  fast: /fast
+  slow mode: /model
+  switch model: /model
+  change model: /model
   # Anthropic
   an throw pick: Anthropic
   an propic: Anthropic
   andropik: Anthropic
   anthropic: Anthropic
-  # prompt / agent
+  anthrowpick: Anthropic
+  anpropic: Anthropic
+  安卓皮: Anthropic
+  安索皮克: Anthropic
+  安斯罗皮克: Anthropic
+  # prompt / agent / tool
   prompt: prompt
   prom: prompt
   prong: prompt
+  pronged: prompt
+  promp: prompt
+  prompt engineering: prompt engineering
   agent: agent
   a gent: agent
   诶镇: agent
+  诶针: agent
+  诶金: agent
+  tool: tool
+  tool use: tool use
+  tools: tools
+  兔: tool
+  m c p: MCP
+  mcp: MCP
+  mcp server: MCP server
+  m c p server: MCP server
+  嗯西皮: MCP
+  # worktree / context
+  work tree: worktree
+  worktree: worktree
+  沃克吹: worktree
+  context window: context window
+  context: context
+  token: token
+  脱困: token
+  托肯: token
+  temperature: temperature
+  temp: temperature
+  ten perature: temperature
 
 # ── 开发平台/工具 ──
-# ★ GitHub → "G" / "get hub" 等误识别
 dev_platform:
+  # GitHub 全系列
   G: GitHub
   g: GitHub
   G hub: GitHub
@@ -75,133 +155,325 @@ dev_platform:
   gatehub: GitHub
   给塔布: GitHub
   鸡塔布: GitHub
-  # GitLab / Bitbucket
+  给特哈布: GitHub
+  吉哈布: GitHub
+  给它不: GitHub
+  # GitLab
   get lab: GitLab
   getlab: GitLab
   gate lab: GitLab
+  gitlab: GitLab
+  给特兰布: GitLab
+  # Bitbucket
   bit bucket: Bitbucket
-  # ★ VSCode → "V" / "vs" 误识别
+  bitbucket: Bitbucket
+  比特八克: Bitbucket
+  # VSCode 全系列
   V: VSCode
   v: VSCode
   v s: VSCode
   vs code: VSCode
   visa code: VSCode
   we code: VSCode
+  v s code: VSCode
+  visa code: VSCode
+  vs cod: VSCode
+  为斯扣的: VSCode
+  # VSCode 变体
+  code: VSCode
+  vscode: VSCode
+  vs co: VSCode
   # JetBrains
   web storm: WebStorm
   webstorm: WebStorm
+  web store: WebStorm
+  外部风暴: WebStorm
   jet brains: JetBrains
+  jetbrains: JetBrains
   杰特布兰: JetBrains
+  杰特 brain: JetBrains
+  idea: IntelliJ
+  intellij: IntelliJ
+  intellij idea: IntelliJ IDEA
+  pi charm: PyCharm
+  pycharm: PyCharm
+  派茶: PyCharm
+  rider: Rider
+  瑞德: Rider
+  go land: GoLand
+  goland: GoLand
   # 终端/Shell
   terminal: Terminal
+  term: Terminal
+  特米诺: Terminal
   power shell: PowerShell
   power show: PowerShell
   power cell: PowerShell
+  power shall: PowerShell
   泡窝晒: PowerShell
+  泡窝晒噢: PowerShell
+  p s: PowerShell
+  ps: PowerShell
   w s l: WSL
   double s l: WSL
   答不留艾斯艾: WSL
+  wsl: WSL
   command prompt: CMD
   c m d: CMD
+  cmd: CMD
+  # 其他开发平台
+  stack overflow: StackOverflow
+  stack over flow: StackOverflow
+  斯达克 overflow: StackOverflow
+  copilot: Copilot
+  co pilot: Copilot
+  抠拍勒: Copilot
+  github copilot: GitHub Copilot
+  get hub copilot: GitHub Copilot
+  给塔布 copilot: GitHub Copilot
+  cursor: Cursor
+  cursor ai: Cursor
+  科色: Cursor
+  chat g p t: ChatGPT
+  chat gpt: ChatGPT
+  chat j p t: ChatGPT
+  拆特: ChatGPT
+  g p t: GPT
+  gpt: GPT
 
-# ── 版本控制 ──
+# ── 版本控制 (git 全系列) ──
 version_control:
+  # git 本身
   git: git
   吉特: git
   给特: git
   gate: git
   get: git
+  gitt: git
+  给特特: git
+  # 常用动作
+  git add: git add
+  get add: git add
+  给特 add: git add
+  git commit: git commit
+  get commit: git commit
   commit: commit
   comit: commit
   com it: commit
   克米特: commit
+  克密特: commit
+  git push: git push
+  get push: git push
   push: push
   bush: push
   putch: push
+  patch: push
+  git pull: git pull
+  get pull: git pull
   pull: pull
   pool: pull
   pul: pull
   扑欧: pull
+  git branch: git branch
+  get branch: git branch
   branch: branch
   brunch: branch
   brand: branch
   布兰奇: branch
+  布软奇: branch
+  git merge: git merge
+  get merge: git merge
   merge: merge
   merch: merge
-  merch: merge
   墨迹: merge
+  么迹: merge
+  git rebase: git rebase
+  get rebase: git rebase
   rebase: rebase
   re base: rebase
   rebays: rebase
-  stash: stash
+  ri base: rebase
+  git stash: git stash
+  get stash: git stash
   stash: stash
   stach: stash
+  dash: stash
+  git reset: git reset
+  get reset: git reset
   reset: reset
   re set: reset
+  git clone: git clone
+  get clone: git clone
   clone: clone
   clown: clone
   collone: clone
+  科隆: clone
+  git checkout: git checkout
+  get checkout: git checkout
+  checkout: checkout
+  check out: checkout
+  拆靠: checkout
+  git status: git status
+  get status: git status
+  status: status
+  stat: status
+  git log: git log
+  get log: git log
+  log: git log
+  git diff: git diff
+  get diff: git diff
+  diff: diff
+  git init: git init
+  get init: git init
+  init: init
+  git remote: git remote
+  get remote: git remote
+  remote: remote
+  re mote: remote
+  锐摩特: remote
+  # fork / upstream
   folk: fork
   fork: fork
   four k: fork
+  佛克: fork
   upstream: upstream
   up stream: upstream
+  阿普斯俊: upstream
   down stream: downstream
   downstream: downstream
   origin: origin
-  remote: remote
-  re mote: remote
+  origin main: origin/main
+  master: master
+  main: main
+  head: HEAD
+  tag: tag
+  release: release
+  hot fix: hotfix
+  hotfix: hotfix
+  feature: feature
+  bug fix: bugfix
+  bugfix: bugfix
 
-# ── CI/CD ──
+# ── CI/CD (全系列) ──
 cicd:
+  # CI
   c i: CI
-  c i c d: CI/CD
   see eye: CI
-  see eye see dee: CI/CD
+  see i: CI
+  c eye: CI
   continuous integration: CI
+  持续集成: CI
+  # CD
+  c d: CD
+  see dee: CD
+  continuous delivery: CD
+  continuous deployment: CD
+  # CI/CD
+  c i c d: CI/CD
+  see eye see dee: CI/CD
+  持续集成持续交付: CI/CD
+  # PR / MR
   p r: PR
   peer: PR
+  pr: PR
   pull request: PR
+  普尔 request: PR
+  扑欧 request: PR
   merge request: MR
+  m r: MR
+  mr: MR
+  # Pipeline
   pipeline: pipeline
   pipe line: pipeline
   派普兰: pipeline
+  派普兰: pipeline
+  派皮兰: pipeline
+  # Workflow
   workflow: workflow
   work flow: workflow
+  沃克佛罗: workflow
+  # GitHub Actions
   action: Action
   actions: Actions
   github actions: GitHub Actions
   get hub actions: GitHub Actions
+  给塔布 actions: GitHub Actions
+  G actions: GitHub Actions
+  # Runner
   runner: runner
   然呢: runner
+  软呢: runner
+  软哪: runner
+  self hosted runner: self-hosted runner
+  self hosted: self-hosted
+  # 其他 CI/CD 术语
+  artifact: artifact
+  artefact: artifact
+  deploy: deploy
+  deploy ment: deployment
+  deployment: deployment
+  迪普洛伊: deploy
+  build: build
+  标得: build
+  test suite: test suite
+  unit test: unit test
+  integration test: integration test
+  e to e test: E2E test
+  end to end test: E2E test
+  green build: green build
+  red build: red build
 
 # ── 打包/包管理 ──
 packaging:
   npm: npm
   n p m: npm
   n p n: npm
+  npn: npm
   pnpm: pnpm
   屁眼: pnpm
   p n p m: pnpm
   p npm: pnpm
+  p n pm: pnpm
+  屁恩屁恩: pnpm
   yarn: yarn
   样恩: yarn
+  亚恩: yarn
+  压恩: yarn
   cargo: cargo
   卡狗: cargo
   咔够: cargo
   car go: cargo
+  卡够: cargo
+  卡沟: cargo
   crate: crate
   rate: crate
   k rate: crate
+  克雷特: crate
+  克瑞特: crate
   pip: pip
   痞普: pip
   pie p: pip
+  皮普: pip
   package: package
   pack age: package
   派克: package
+  趴给: package
   dependency: dependency
   depend: dependency
+  dep: dependency
   dev dependency: devDependency
+  dev depend: devDependency
+  dev dep: devDependency
+  lock file: lockfile
+  lockfile: lockfile
+  落克: lock
+  cargo lock: Cargo.lock
+  卡狗 lock: Cargo.lock
+  package json: package.json
+  node modules: node_modules
+  弄魔九: node_modules
+  semver: semver
+  version: version
 
 # ── Rust 专有 ──
 rust:
@@ -209,154 +481,475 @@ rust:
   rust: Rust
   拉斯特: Rust
   如斯特: Rust
+  日斯特: Rust
+  rustc: rustc
+  拉斯特 c: rustc
+  rust up: rustup
+  rustup: rustup
+  拉斯特 up: rustup
   tracked: trait
   trait: trait
   t rate: trait
+  吹特: trait
   impl: impl
   i m p l: impl
-  impl: impl
+  因普: impl
   struct: struct
   struck: struct
   strucked: struct
+  斯爪克: struct
   enum: enum
   inum: enum
   e numb: enum
+  一纳姆: enum
+  音纳姆: enum
   mute x: Mutex
   mutex: Mutex
+  mute ex: Mutex
+  缪泰克: Mutex
   ark: Arc
   a r c: Arc
+  阿克: Arc
   vec: Vec
   deck: Vec
+  weck: Vec
+  维克: Vec
   hash map: HashMap
   hashmap: HashMap
+  hash map: HashMap
+  哈希 map: HashMap
   option: Option
+  opt: Option
   some: Some
+  sum: Some
   none: None
+  known: None
   result: Result
+  res: Result
   okay: Ok
   error: Err
+  err: Err
   ownership: ownership
   owner ship: ownership
+  owner: owner
   borrow: borrow
+  波若: borrow
   borrow checker: borrow checker
   borrow check: borrow checker
+  borch: borrow check
   lifetime: lifetime
   life time: lifetime
   来福泰: lifetime
+  莱夫泰: lifetime
   reference: reference
   ref: &ref
+  refer: reference
+  deref: deref
   macro: macro
   marco: macro
+  马克柔: macro
   derive: derive
   derive macro: derive
+  drive macro: derive
+  得瑞夫: derive
+  generic: generic
+  generics: generic
+  杰那瑞: generic
+  type: type
+  tight: type
+  泰普: type
+  钛普: type
+  module: module
+  mod: mod
+  pub: pub
+  public: pub
+  private: private
+  unsafe: unsafe
+  safe: safe
+  match: match
+  麦驰: match
+  if let: if let
+  while let: while let
+  closure: closure
+  closer: closure
+  克老热: closure
+  克老舍: closure
+  iterator: iterator
+  iteration: iterator
+  迭代: iterator
+  伊特瑞特: iterator
+  async: async
+  a sync: async
+  a sink: async
+  a think: async
+  额信克: async
+  await: await
+  a wait: await
+  额维特: await
+  额维特特: await
+  future: future
+  stream: stream
+  channel: channel
+  mpsc: mpsc
+  thread: thread
+  死来德: thread
+  spawn: spawn
+  死棒: spawn
+  box: Box
+  boxed: Box
+  pin: Pin
+  pin box: Pin<Box>
+  dyn: dyn
+  dynamic: dyn
+  static: static
+  const: const
+  con: const
+  mut: mut
+  mutable: mut
+  谬特: mut
+  immutable: immutable
 
-# ── 编程通用 ──
+# ── 编程通用 (高频) ──
 programming:
   refactor: refactor
   re factor: refactor
   瑞发特: refactor
-  expire: transpile
+  瑞发特: refactor
   transpile: transpile
   compile: compile
   com pile: compile
   康派: compile
+  康派尔: compile
   debug: debug
   de bug: debug
   de bock: debug
   迪巴: debug
-  async: async
-  a sync: async
-  a sink: async
-  await: await
-  a wait: await
-  额维特: await
-  thread: thread
-  死来德: thread
-  co routine: coroutine
+  迪巴克: debug
   coroutine: coroutine
-  closure: closure
-  closer: closure
-  克老热: closure
-  iterator: iterator
-  iteration: iterator
+  co routine: coroutine
   generator: generator
-  type: type
-  tight: type
-  泰普: type
-  generic: generic
-  generics: generic
-  interface: interface
+  iterator: iterator
+  promise: Promise
+  普罗米斯: Promise
+  callback: callback
+  call back: callback
+  靠拜: callback
+  hook: hook
+  虎克: hook
+  middleware: middleware
+  middle ware: middleware
+  handler: handler
+  listener: listener
+  event: event
+  emitter: emitter
+  observer: observer
+  observable: observable
   abstract: abstract
+  阿布斯抓: abstract
+  interface: interface
+  impl: implement
+  implement: implement
+  因普门: implement
+  extend: extend
+  inherit: inherit
+  因赫瑞: inherit
+  override: override
+  overload: overload
   polymorphism: polymorphism
+  多态: polymorphism
   array: array
+  额瑞: array
   list: list
+  利斯特: list
   set: set
+  赛特: set
+  map: map
+  麦普: map
+  stack: stack
+  斯达克: stack
+  queue: queue
+  heap: heap
+  tree: tree
+  graph: graph
+  node: node
+  edge: edge
+  loop: loop
+  露普: loop
+  recursion: recursion
+  recursive: recursive
+  iteration: iteration
+  conditional: conditional
+  branch: branch
+  exception: exception
+  throw: throw
+  catch: catch
+  凯奇: catch
+  try catch: try-catch
+  揣 catch: try-catch
+  panic: panic
+  unwrap: unwrap
+  expect: expect
+  handle: handle
+  error handling: error handling
+  fallback: fallback
+  default: default
+  configuration: config
+  settings: settings
+  environment: env
+  variable: var
+  瓦瑞: var
+  string: String
+  number: number
+  integer: int
+  float: float
+  boolean: bool
+  null: null
+  undefined: undefined
+  nan: NaN
+  infinity: Infinity
+  function: function
+  method: method
+  property: property
+  attribute: attribute
+  parameter: param
+  argument: arg
+  return: return
+  yield: yield
+  lambda: lambda
+  arrow function: arrow function
 
 # ── 本项目术语 ──
 project:
   audio input: audio-input
   audio in put: audio-input
+  奥迪欧 input: audio-input
+  奥丢 input: audio-input
+  audio: audio
+  奥丢: audio
   sense voice: SenseVoice
   cents voice: SenseVoice
   center voice: SenseVoice
+  since voice: SenseVoice
+  cents boys: SenseVoice
+  三斯 voice: SenseVoice
   sharper onyx: sherpa-onnx
   sherpa onyx: sherpa-onnx
-  sherpa onyx: sherpa-onnx
-  sharper onyx: sherpa-onnx
+  sherpa onyks: sherpa-onnx
+  sharpa: sherpa
+  夏帕: sherpa
+  夏跑: sherpa
   onyx: ONNX
+  onyx: ONNX
+  欧尼克斯: ONNX
   欧尼克斯: ONNX
   llm: LLM
   l l m: LLM
+  lm: LLM
+  埃尔埃尔母: LLM
   a s r: ASR
   a s a r: ASR
   aser: ASR
+  asr: ASR
+  诶斯啊: ASR
   v a d: VAD
+  vad: VAD
   was api: WASAPI
   was a p i: WASAPI
+  wasapi: WASAPI
+  瓦萨皮: WASAPI
   hot words: hotwords
+  hotword: hotwords
+  hot word: hotwords
+  浩特 words: hotwords
   correct: corrector
   corrector: corrector
+  corrector: corrector
+  科瑞特: corrector
   tray: tray
+  吹: tray
   trigger: trigger
+  吹格: trigger
   clip board: clipboard
+  clipboard: clipboard
+  克里普 board: clipboard
+  paste: paste
+  配斯特: paste
+  transcribe: transcribe
+  transcription: transcription
+  model: model
+  毛豆: model
+  猫都: model
 
 # ── 文件/路径操作 ──
 filesystem:
   config: config
   configure: config
   const: config
+  康菲: config
   toml: TOML
   tom: TOML
+  汤姆: TOML
+  涛姆: TOML
   yaml: YAML
   鸭毛: YAML
   yamo: YAML
+  鸭莫: YAML
+  压毛: YAML
   json: JSON
   j son: JSON
   jason: JSON
   杰森: JSON
   source: src
   sauce: src
-  source code: src
   source code: source code
+  源代码: source code
+  src: src
+  s r c: src
   lib: lib
+  l i b: lib
   directory: dir
   dir: dir
-  directory tree: tree
+  迪儿: dir
+  tree: tree
+  吹: tree
   path: path
   怕斯: path
+  帕斯: path
   absolute path: absolute path
+  绝对 path: absolute path
   relative path: relative path
+  相对 path: relative path
   wild card: wildcard
   wildcard: wildcard
+  歪卡: wildcard
   glob: glob
   glove: glob
+  哥罗布: glob
   regex: regex
   reg x: regex
+  reg x: regex
   regular expression: regex
+  正则: regex
   pattern: pattern
   怕腾: pattern
+  file: file
+  folder: folder
+  佛了: folder
+  extension: extension
+  扩展名: extension
+  suffix: suffix
+  prefix: prefix
+  root: root
+  home: home
+  cwd: current directory
+  pwd: current directory
+  env: .env
+  dot env: .env
+  env file: .env
+  dot file: dotfile
+  dotfile: dotfile
+  hidden: hidden
+  git ignore: .gitignore
+  gitignore: .gitignore
+  readme: README
+  license: LICENSE
+  markdown: Markdown
+  马克当: Markdown
+  rust file: .rs
+  rs file: .rs
 
-# ── 常见口语填充 (LLM 自动移除) ──
+# ── 数据库/存储 ──
+database:
+  sql: SQL
+  s q l: SQL
+  斯 Q L: SQL
+  mysql: MySQL
+  my sql: MySQL
+  卖 SQL: MySQL
+  postgres: PostgreSQL
+  post gres: PostgreSQL
+  泡斯格: PostgreSQL
+  no sql: NoSQL
+  nosql: NoSQL
+  redis: Redis
+  re dis: Redis
+  瑞迪斯: Redis
+  cache: cache
+  凯奇: cache
+  memoize: memoize
+  memo: memo
+  database: DB
+  db: DB
+  d b: DB
+  connection: connection
+  connect: connect
+  query: query
+  亏瑞: query
+  亏里: query
+  select: SELECT
+  se lect: SELECT
+  insert: INSERT
+  update: UPDATE
+  delete: DELETE
+  join: JOIN
+  transaction: transaction
+  index: index
+  migration: migration
+  麦格瑞: migration
+  schema: schema
+  斯 Ki 马: schema
+  orm: ORM
+  欧 RM: ORM
+
+# ── Docker / K8s / 容器 ──
+container:
+  docker: Docker
+  道可: Docker
+  刀客: Docker
+  达克: Docker
+  docker compose: docker compose
+  docker composed: docker compose
+  compose: compose
+  container: container
+  康特呢: container
+  image: image
+  一妹: image
+  doker file: Dockerfile
+  dockerfile: Dockerfile
+  doker build: docker build
+  docker build: docker build
+  doker run: docker run
+  docker run: docker run
+  kubectl: kubectl
+  kube control: kubectl
+  cube control: kubectl
+  kube c t l: kubectl
+  kube ct l: kubectl
+  库巴 control: kubectl
+  k8s: k8s
+  k eights: k8s
+  kubernetes: k8s
+  kuber netes: k8s
+  库巴内替斯: k8s
+  pod: pod
+  泡的: pod
+  node: node
+  namespace: namespace
+  helm: Helm
+  海姆: Helm
+  chamber: Helm
+  chart: Chart
+  ingress: ingress
+  因格瑞斯: ingress
+  service: service
+  deployment: deployment
+  config map: ConfigMap
+  configmap: ConfigMap
+  secret: Secret
+  volume: volume
+  pvc: PVC
+
+# ── 口语填充词 (LLM 自动移除) ──
 filler_words:
   - 嗯
   - 啊
@@ -372,3 +965,10 @@ filler_words:
   - 对了
   - 反正
   - 这样子
+  - 就是说呢
+  - 我就是说
+  - 你知道
+  - 你知道吗
+  - um
+  - uh
+  - 呃
