@@ -65,28 +65,32 @@ impl Hotwords {
 
     pub fn phonetic_count(&self) -> usize { self.phonetic_map.len() }
 
-    /// 本地快速音近词替换: 长匹配优先, case-insensitive
+    /// 本地快速音近词替换: 长匹配优先, 多次迭代直到稳定
     /// - 短词(≤2字符) 仅在词边界处替换 (避免 "Q" 误匹配 "Query")
     /// - 长词(>2字符) 继续用子串匹配
+    /// - 重复遍历直到没有任何替换发生 (处理嵌套替换: "Q code"→"Claude Code")
     pub fn quick_correct(&self, text: &str) -> String {
         let mut result = text.to_string();
         let mut pairs: Vec<(&String, &String)> = self.phonetic_map.iter().collect();
         pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len())); // 长匹配优先
 
-        for (wrong, correct) in &pairs {
-            if wrong.len() <= 2 {
-                // ★ 短词: 只在独立词位置替换 (前后均为空格/标点/边界)
-                result = replace_word_boundary(&result, wrong, correct);
-            } else {
-                // 长词: 子串匹配
-                let lower_text = result.to_lowercase();
-                let lower_wrong = wrong.to_lowercase();
-                if let Some(pos) = lower_text.find(&lower_wrong) {
-                    let end = pos + wrong.len();
-                    let replacement = capitalize_match(&result[pos..end], correct);
-                    result.replace_range(pos..end, &replacement);
+        // 迭代替换, 最多10轮 (避免死循环)
+        for _round in 0..10 {
+            let before = result.clone();
+            for (wrong, correct) in &pairs {
+                if wrong.len() <= 2 {
+                    result = replace_word_boundary(&result, wrong, correct);
+                } else {
+                    let lower_text = result.to_lowercase();
+                    let lower_wrong = wrong.to_lowercase();
+                    if let Some(pos) = lower_text.find(&lower_wrong) {
+                        let end = pos + wrong.len();
+                        let replacement = capitalize_match(&result[pos..end], correct);
+                        result.replace_range(pos..end, &replacement);
+                    }
                 }
             }
+            if result == before { break; } // 无变化, 退出
         }
         result
     }
@@ -96,7 +100,7 @@ impl Hotwords {
         let mut ctx = String::new();
         ctx.push_str("编程音近词替换参考（ASR误识→正确术语，全部映射）：\n");
 
-        // 稳定排序: 按误识别词(key)字母序
+        // 稳定排序: 按误识别词(key)字母序, 输出全部映射
         let mut pairs: Vec<(&String, &String)> = self.phonetic_map.iter().collect();
         pairs.sort_by(|a, b| a.0.cmp(b.0));
         let formatted: Vec<String> = pairs.iter()
