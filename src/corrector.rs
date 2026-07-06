@@ -1,7 +1,10 @@
-//! LLM 修正器 — 仅 OpenAI 兼容接口
+//! LLM 修正器 — Claude Code 编程场景专用
 //!
-//! 从 settings.json 读取 API 地址、模型名、API Key。
-//! 将 ASR 原始文本 + CLI 热词上下文发送给 LLM 修正。
+//! 将 ASR 原始文本 + 编程热词上下文发给 LLM：
+//! 1. 音近词替换为正确的编程术语（参考热词表）
+//! 2. 通读上下文确认语义连贯
+//! 3. 与编程无关的口语/闲聊内容删除
+//! 4. 输出整理后的编程相关文本
 
 use anyhow::{Context, Result};
 use log::info;
@@ -11,7 +14,6 @@ use std::time::Duration;
 use crate::config::LlmConfig;
 use crate::hotwords::Hotwords;
 
-/// 修正器
 pub struct Corrector {
     settings: LlmConfig,
     hotwords: Hotwords,
@@ -49,11 +51,9 @@ struct ChatMsgContent {
 
 impl Corrector {
     pub fn new(settings: &LlmConfig, hotwords: &Hotwords) -> Result<Self> {
-        // native-tls 方式: 通过系统证书处理 SSL，不需要 danger_accept_invalid_certs
         let mut builder = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(15));
 
-        // 如果 verify_ssl 为 false，添加不安全的连接器
         if !settings.verify_ssl {
             builder = builder.danger_accept_invalid_certs(true);
         }
@@ -68,11 +68,9 @@ impl Corrector {
         })
     }
 
-    /// 执行文本修正
     pub fn correct(&self, raw_text: &str) -> Result<String> {
-        // 先本地快速修正
+        // 本地快速音近替换
         let text = self.hotwords.quick_correct(raw_text);
-
         let prompt = self.build_correction_prompt(&text);
 
         let request = ChatRequest {
@@ -80,7 +78,7 @@ impl Corrector {
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: "你是一个精确的文本修正工具。只输出修正后的文本，不添加任何解释、说明或额外内容。".to_string(),
+                    content: "你是一个Claude Code编程语音修正器。用户通过语音输入与Claude Code AI编程助手对话。你的任务：1) 用已知热词替换ASR误识的音近词 2) 修正后通读确保语义通顺 3) 删除与编程完全无关的内容 4) 只输出最终文本，不加解释。".to_string(),
                 },
                 ChatMessage {
                     role: "user".to_string(),
@@ -99,7 +97,6 @@ impl Corrector {
             .header("Content-Type", "application/json")
             .json(&request);
 
-        // API key: "none" 表示不需要
         if self.settings.api_key != "none" && !self.settings.api_key.is_empty() {
             req = req.header("Authorization", format!("Bearer {}", self.settings.api_key));
         }
@@ -127,14 +124,15 @@ impl Corrector {
     fn build_correction_prompt(&self, raw_text: &str) -> String {
         let hotwords_context = self.hotwords.get_prompt_context();
         format!(
-            "你是一个CLI命令修正器。用户的语音通过ASR识别得到了原始文本。请修正以下识别文本：\n\
-             1. 修正CLI工具/命令的拼写错误（参考已知术语表）\n\
-             2. 标点符号和大小写规范化\n\
-             3. 移除口语化填充词\n\
-             4. 将音近的错误词替换为正确的CLI术语\n\n\
-             已知的CLI术语/热词：\n{}\n\n\
-             原始ASR文本：{}\n\n\
-             请只输出修正后的文本，不要加任何解释或额外内容。",
+            "你是一个Claude Code编程语音修正器。用户正在用语音与Claude Code AI编程助手对话。\n\n\
+             编程热词/术语参考（按类别）：\n{}\n\
+             修正规则：\n\
+             1. **音近词替换**: 将ASR误识的词替换为参考热词表中最接近的编程术语。例如\"close\"→\"Claude\", \"卡狗\"→\"cargo\", \"get commit\"→\"git commit\"\n\
+             2. **上下文验证**: 替换后通读整句，确保语义在编程上下文中通顺。不通顺则重新选择替换词\n\
+             3. **内容过滤**: 删除与编程/Claude Code完全无关的口语闲聊，保留编程指令、技术讨论、代码操作\n\
+             4. **整理输出**: 将保留的编程内容整理为清晰、直接的自然语言指令\n\n\
+             原始ASR语音文本：{}\n\n\
+             只输出最终修正整理后的文本（纯文本，不要前缀、不要引号、不要任何解释）：",
             hotwords_context,
             raw_text
         )

@@ -65,16 +65,16 @@ impl AsrEngine {
         debug!("临时 WAV: {:?} ({} samples)", wav_path, audio_data.len());
 
         // 2. 调用 sherpa-onnx-offline.exe
-        let model_str = self.model_path.to_str().unwrap();
-        let tokens_str = self.tokens_path.to_str().unwrap();
-        let wav_str = wav_path.to_str().unwrap();
+        let model_str = self.model_path.to_str().unwrap().to_string();
+        let tokens_str = self.tokens_path.to_str().unwrap().to_string();
+        let wav_str = wav_path.to_str().unwrap().to_string();
 
         let output = Command::new(&self.sherpa_exe)
             .args([
-                format!("--sense-voice-model={model_str}"),
-                format!("--tokens={tokens_str}"),
+                format!("--sense-voice-model={}", model_str),
+                format!("--tokens={}", tokens_str),
                 "--sense-voice-use-itn=true".to_string(),
-                wav_str.to_string(),
+                wav_str,
             ])
             .output()
             .context("执行 sherpa-onnx-offline.exe 失败")?;

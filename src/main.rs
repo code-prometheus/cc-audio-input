@@ -10,6 +10,7 @@ mod corrector;
 mod clipboard_paste;
 mod device_selector;
 mod tray;
+mod cursor;
 
 use log::{info, error, warn};
 use std::sync::{Arc, Mutex};
@@ -65,6 +66,7 @@ fn main() {
             move || {
                 tray.show_notification("audio-input", "🔴 录音中...");
                 is_rec.store(true, Ordering::SeqCst);
+                cursor::CursorManager::set_recording();
                 info!("🔴 Recording...");
                 let is_rec = is_rec.clone();
                 let audio_buf = audio_buf.clone();
@@ -78,9 +80,11 @@ fn main() {
                         std::thread::sleep(std::time::Duration::from_millis(80));
                         beep(2400, 150).ok();
                     }
+                    cursor::CursorManager::set_recording();
                     let rec_cfg = recorder::RecorderConfig { sample_rate, device_id: input_id, channels };
                     if let Err(e) = recorder::record_blocking(&rec_cfg, is_rec, &audio_buf) {
                         error!("Record error: {}", e);
+                        cursor::CursorManager::restore();
                     }
                 });
             }
@@ -98,7 +102,11 @@ fn main() {
                 let audio_data = audio_buf.lock().unwrap().clone();
                 if audio_data.is_empty() { info!("⚠️  No audio"); return; }
                 let dur = audio_data.len() as f64 / sample_rate as f64;
-                info!("📊 Audio: {:.1}s", dur);
+                let max_amp = audio_data.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                let mean_amp = audio_data.iter().map(|s| s.abs()).sum::<f32>() / audio_data.len() as f32;
+                let nonzeros = audio_data.iter().filter(|&&s| s.abs() > 0.0001).count();
+                info!("📊 Audio: {:.1}s, max={:.6}, mean={:.6}, nonzero={}/{}",
+                      dur, max_amp, mean_amp, nonzeros, audio_data.len());
 
                 let raw = match &asr {
                     Some(e) => e.recognize(&audio_data, sample_rate).unwrap_or_else(|e| { error!("ASR: {}", e); "[ASR Error]".into() }),
@@ -119,6 +127,7 @@ fn main() {
                     Err(e) => error!("Paste: {}", e),
                 }
                 audio_buf.lock().unwrap().clear();
+                cursor::CursorManager::restore();
                 tray.show_notification("audio-input", "✅ 已粘贴到CLI");
                 info!("✅ Ready");
             }
