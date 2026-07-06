@@ -72,6 +72,8 @@ impl Corrector {
         // 本地快速音近替换
         let text = self.hotwords.quick_correct(raw_text);
         let prompt = self.build_correction_prompt(&text);
+        info!("🔧 修正prompt长度: {} chars, 热词映射: {} 条",
+              prompt.len(), self.hotwords.phonetic_count());
 
         let request = ChatRequest {
             model: self.settings.model.clone(),

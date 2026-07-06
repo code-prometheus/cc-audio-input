@@ -92,17 +92,18 @@ impl Hotwords {
         result
     }
 
-    /// 构建 LLM prompt 上下文 (精简的音近映射参考表)
+    /// 构建 LLM prompt 上下文, 输出全部音近映射 (按误识别词字母序稳定排列)
     pub fn get_prompt_context(&self) -> String {
         let mut ctx = String::new();
-        ctx.push_str("编程音近词替换参考（ASR误识→正确术语）：\n");
+        ctx.push_str("编程音近词替换参考（ASR误识→正确术语，全部映射）：\n");
 
-        // 取前60条最重要的映射给LLM参考
-        let pairs: Vec<String> = self.phonetic_map.iter()
-            .take(60)
+        // 稳定排序: 按误识别词(key)字母序
+        let mut pairs: Vec<(&String, &String)> = self.phonetic_map.iter().collect();
+        pairs.sort_by(|a, b| a.0.cmp(b.0));
+        let formatted: Vec<String> = pairs.iter()
             .map(|(k, v)| format!("{}→{}", k, v))
             .collect();
-        ctx.push_str(&pairs.join("；"));
+        ctx.push_str(&formatted.join("；"));
         ctx.push('\n');
 
         if !self.filler_words.is_empty() {
