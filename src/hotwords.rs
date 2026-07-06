@@ -1,4 +1,7 @@
-//! Claude Code 编程专用热词管理
+//! Claude Code 编程语音 — 音近词修正热词管理
+//!
+//! 从 hotwords.yaml 加载分类的音近词映射表(foo→bar),
+//! 提供本地快速替换 + LLM 上下文构建。
 
 use anyhow::{Context, Result};
 use log::info;
@@ -8,18 +11,20 @@ use std::path::Path;
 
 #[derive(Debug, Clone, Deserialize)]
 struct HotwordsFile {
-    claude_code_commands: Option<Vec<String>>,
-    claude_models: Option<Vec<String>>,
-    dev_tools: Option<Vec<String>>,
-    project_terms: Option<Vec<String>>,
-    programming_concepts: Option<Vec<String>>,
-    phonetic_corrections: Option<HashMap<String, String>>,
+    claude_ai: Option<HashMap<String, String>>,
+    dev_platform: Option<HashMap<String, String>>,
+    version_control: Option<HashMap<String, String>>,
+    cicd: Option<HashMap<String, String>>,
+    packaging: Option<HashMap<String, String>>,
+    rust: Option<HashMap<String, String>>,
+    programming: Option<HashMap<String, String>>,
+    project: Option<HashMap<String, String>>,
+    filesystem: Option<HashMap<String, String>>,
     filler_words: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Hotwords {
-    words: Vec<String>,
     phonetic_map: HashMap<String, String>,
     filler_words: Vec<String>,
 }
@@ -38,34 +43,33 @@ impl Hotwords {
         let hf: HotwordsFile = serde_yaml::from_str(&content)
             .with_context(|| format!("热词YAML解析失败: {:?}", path))?;
 
-        let mut words = Vec::new();
-        for cat in [&hf.claude_code_commands, &hf.claude_models, &hf.dev_tools,
-                    &hf.project_terms, &hf.programming_concepts] {
-            if let Some(list) = cat {
-                words.extend(list.iter().cloned());
+        // 合并所有分类的音近映射
+        let mut phonetic_map = HashMap::new();
+        for cat in [hf.claude_ai, hf.dev_platform, hf.version_control,
+                    hf.cicd, hf.packaging, hf.rust, hf.programming,
+                    hf.project, hf.filesystem] {
+            if let Some(map) = cat {
+                phonetic_map.extend(map);
             }
         }
-        words.sort();
-        words.dedup();
 
-        info!("📖 热词加载: {} 词, {} 音近映射", words.len(),
-              hf.phonetic_corrections.as_ref().map_or(0, |m| m.len()));
+        info!("📖 热词加载: {} 音近映射, {} 填充词",
+              phonetic_map.len(),
+              hf.filler_words.as_ref().map_or(0, |v| v.len()));
 
         Ok(Self {
-            words,
-            phonetic_map: hf.phonetic_corrections.unwrap_or_default(),
+            phonetic_map,
             filler_words: hf.filler_words.unwrap_or_default(),
         })
     }
 
-    pub fn word_count(&self) -> usize { self.words.len() }
     pub fn phonetic_count(&self) -> usize { self.phonetic_map.len() }
 
-    /// 本地快速音近词替换
+    /// 本地快速音近词替换: 长匹配优先, case-insensitive
     pub fn quick_correct(&self, text: &str) -> String {
         let mut result = text.to_string();
         let mut pairs: Vec<(&String, &String)> = self.phonetic_map.iter().collect();
-        pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len())); // 长匹配优先
+        pairs.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
 
         for (wrong, correct) in &pairs {
             let lower_text = result.to_lowercase();
@@ -88,35 +92,21 @@ impl Hotwords {
         result
     }
 
-    /// 构建 LLM prompt 上下文（精简版，给 LLM 做二次修正用）
+    /// 构建 LLM prompt 上下文 (精简的音近映射参考表)
     pub fn get_prompt_context(&self) -> String {
         let mut ctx = String::new();
+        ctx.push_str("编程音近词替换参考（ASR误识→正确术语）：\n");
 
-        // Claude Code 命令（最优先）
-        let cc: Vec<&str> = self.words.iter()
-            .filter(|w| w.starts_with('/'))
-            .take(25).map(|s| s.as_str()).collect();
-        if !cc.is_empty() {
-            ctx.push_str(&format!("Claude Code 命令: {}\n", cc.join(", ")));
-        }
+        // 取前60条最重要的映射给LLM参考
+        let pairs: Vec<String> = self.phonetic_map.iter()
+            .take(60)
+            .map(|(k, v)| format!("{}→{}", k, v))
+            .collect();
+        ctx.push_str(&pairs.join("；"));
+        ctx.push('\n');
 
-        // 开发工具
-        let tools: Vec<&str> = self.words.iter()
-            .filter(|w| !w.starts_with('/') && !w.starts_with('-') && !w.starts_with("audio-")
-                    && !w.starts_with("sherpa") && !w.starts_with("Sense") && !w.starts_with("ONNX")
-                    && !w.starts_with("WASAPI") && !w.starts_with("ASR") && !w.starts_with("LLM")
-                    && !w.starts_with("VAD") && !w.starts_with("hotwords") && !w.starts_with("corrector"))
-            .map(|s| s.as_str()).collect();
-        if !tools.is_empty() {
-            let joined: Vec<&str> = tools.iter().take(60).copied().collect();
-            ctx.push_str(&format!("编程工具/概念: {}\n", joined.join(", ")));
-        }
-
-        // 音近映射（给LLM参考）
-        if !self.phonetic_map.is_empty() {
-            let pairs: Vec<String> = self.phonetic_map.iter().take(30)
-                .map(|(k, v)| format!("{}→{}", k, v)).collect();
-            ctx.push_str(&format!("常见音近替换: {}\n", pairs.join("; ")));
+        if !self.filler_words.is_empty() {
+            ctx.push_str(&format!("口语填充词(需移除): {}\n", self.filler_words.join("、")));
         }
 
         ctx

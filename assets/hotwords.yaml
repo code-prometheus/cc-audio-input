@@ -1,288 +1,327 @@
 # ============================================================
-# Claude Code 编程专用热词库
-# 用于修正 ASR 识别结果，所有热词只与编程/CLI 场景相关
+# Claude Code 编程语音 — 音近词修正热词库
+#
+# 设计原则:
+# 1. 所有条目必须是ASR常误识别的音近/形近替代词
+# 2. 目标词必须是编程/Claude Code场景高频术语
+# 3. 命令本身(/clear等)不需要, 那是打字输入的
+# 4. 分类只便于管理, LLM能看到的是音近映射表
 # ============================================================
 
-# ── Claude Code 专属命令 ──
-claude_code_commands:
-  - /help
-  - /clear
-  - /compact
-  - /config
-  - /doctor
-  - /model
-  - /permissions
-  - /status
-  - /review
-  - /security-review
-  - /init
-  - /simplify
-  - /code-review
-  - /code-review-commit
-  - /install-tools
-  - /workflows
-  - /loop
-  - /fast
-  - /design-sync
-  - /design-login
-  - /agents
-  - /tasks
-  - /mcp
-  - /add-directory
-  - /cost
+# ── Claude/AI 平台 ──
+claude_ai:
+  close: Claude
+  cloud: Claude
+  clod: Claude
+  clawed: Claude
+  克劳德: Claude
+  科洛德: Claude
+  克洛德: Claude
+  close code: Claude Code
+  cloud code: Claude Code
+  fable: Fable
+  飞波: Fable
+  飞博: Fable
+  菲博: Fable
+  opus: Opus
+  欧普斯: Opus
+  奥普斯: Opus
+  欧布斯: Opus
+  sonnet: Sonnet
+  索尼特: Sonnet
+  索内特: Sonnet
+  桑尼特: Sonnet
+  haiku: Haiku
+  海库: Haiku
+  嗨库: Haiku
+  an throw pick: Anthropic
+  an propic: Anthropic
+  andropik: Anthropic
+  prompt: prompt
+  prom: prompt
+  prong: prompt
 
-# ── Claude 模型/概念 ──
-claude_models:
-  - Claude
-  - Claude Code
-  - Fable
-  - Fable 5
-  - Opus
-  - Opus 4.8
-  - Sonnet
-  - Sonnet 4.6
-  - Haiku
-  - Haiku 4.5
-  - Anthropic
-  - prompt
-  - agent
-  - tool use
-  - context window
-  - MCP server
-  - worktree
+# ── 开发平台/工具 ──
+dev_platform:
+  get hub: GitHub
+  github: GitHub
+  gatehub: GitHub
+  给塔布: GitHub
+  鸡塔布: GitHub
+  get lab: GitLab
+  getlab: GitLab
+  gate lab: GitLab
+  bit bucket: Bitbucket
+  vs code: VSCode
+  visa code: VSCode
+  web storm: WebStorm
+  webstorm: WebStorm
+  jet brains: JetBrains
+  杰特布兰: JetBrains
+  terminal: Terminal
+  power shell: PowerShell
+  power show: PowerShell
+  power cell: PowerShell
+  泡窝晒: PowerShell
+  w s l: WSL
+  double s l: WSL
+  答不留艾斯艾: WSL
+  command prompt: CMD
+  c m d: CMD
 
-# ── 编程高频工具 ──
-dev_tools:
-  - git
-  - git add
-  - git commit
-  - git push
-  - git pull
-  - git status
-  - git log
-  - git diff
-  - git branch
-  - git checkout
-  - git merge
-  - git rebase
-  - git stash
-  - git reset
-  - git clone
-  - npm
-  - npm install
-  - npm run
-  - npm test
-  - npx
-  - pnpm
-  - yarn
-  - cargo
-  - cargo build
-  - cargo run
-  - cargo test
-  - cargo check
-  - cargo fmt
-  - cargo clippy
-  - rustc
-  - rustup
+# ── 版本控制 ──
+version_control:
+  git: git
+  吉特: git
+  给特: git
+  gate: git
+  get: git
+  commit: commit
+  comit: commit
+  com it: commit
+  克米特: commit
+  push: push
+  bush: push
+  putch: push
+  pull: pull
+  pool: pull
+  pul: pull
+  扑欧: pull
+  branch: branch
+  brunch: branch
+  brand: branch
+  布兰奇: branch
+  merge: merge
+  merch: merge
+  merch: merge
+  墨迹: merge
+  rebase: rebase
+  re base: rebase
+  rebays: rebase
+  stash: stash
+  stash: stash
+  stach: stash
+  reset: reset
+  re set: reset
+  clone: clone
+  clown: clone
+  collone: clone
+  folk: fork
+  fork: fork
+  four k: fork
+  upstream: upstream
+  up stream: upstream
+  down stream: downstream
+  downstream: downstream
+  origin: origin
+  remote: remote
+  re mote: remote
+
+# ── CI/CD ──
+cicd:
+  c i: CI
+  c i c d: CI/CD
+  see eye: CI
+  see eye see dee: CI/CD
+  continuous integration: CI
+  p r: PR
+  peer: PR
+  pull request: PR
+  merge request: MR
+  pipeline: pipeline
+  pipe line: pipeline
+  派普兰: pipeline
+  workflow: workflow
+  work flow: workflow
+  action: Action
+  actions: Actions
+  github actions: GitHub Actions
+  get hub actions: GitHub Actions
+  runner: runner
+  然呢: runner
+
+# ── 打包/包管理 ──
+packaging:
+  npm: npm
+  n p m: npm
+  n p n: npm
+  pnpm: pnpm
+  屁眼: pnpm
+  p n p m: pnpm
+  p npm: pnpm
+  yarn: yarn
+  样恩: yarn
+  cargo: cargo
+  卡狗: cargo
+  咔够: cargo
+  car go: cargo
+  crate: crate
+  rate: crate
+  k rate: crate
+  pip: pip
+  痞普: pip
+  pie p: pip
+  package: package
+  pack age: package
+  派克: package
+  dependency: dependency
+  depend: dependency
+  dev dependency: devDependency
+
+# ── Rust 专有 ──
+rust:
+  rest: Rust
+  rust: Rust
+  拉斯特: Rust
+  如斯特: Rust
+  tracked: trait
+  trait: trait
+  t rate: trait
+  impl: impl
+  i m p l: impl
+  impl: impl
+  struct: struct
+  struck: struct
+  strucked: struct
+  enum: enum
+  inum: enum
+  e numb: enum
+  mute x: Mutex
+  mutex: Mutex
+  ark: Arc
+  a r c: Arc
+  vec: Vec
+  deck: Vec
+  hash map: HashMap
+  hashmap: HashMap
+  option: Option
+  some: Some
+  none: None
+  result: Result
+  okay: Ok
+  error: Err
+  ownership: ownership
+  owner ship: ownership
+  borrow: borrow
+  borrow checker: borrow checker
+  borrow check: borrow checker
+  lifetime: lifetime
+  life time: lifetime
+  来福泰: lifetime
+  reference: reference
+  ref: &ref
+  macro: macro
+  marco: macro
+  derive: derive
+  derive macro: derive
+
+# ── 编程通用 ──
+programming:
+  refactor: refactor
+  re factor: refactor
+  瑞发特: refactor
+  expire: transpile
+  transpile: transpile
+  compile: compile
+  com pile: compile
+  康派: compile
+  debug: debug
+  de bug: debug
+  de bock: debug
+  迪巴: debug
+  async: async
+  a sync: async
+  a sink: async
+  await: await
+  a wait: await
+  额维特: await
+  thread: thread
+  死来德: thread
+  co routine: coroutine
+  coroutine: coroutine
+  closure: closure
+  closer: closure
+  克老热: closure
+  iterator: iterator
+  iteration: iterator
+  generator: generator
+  type: type
+  tight: type
+  泰普: type
+  generic: generic
+  generics: generic
+  interface: interface
+  abstract: abstract
+  polymorphism: polymorphism
+  array: array
+  list: list
+  set: set
 
 # ── 本项目术语 ──
-project_terms:
-  - audio-input
-  - sherpa-onnx
-  - SenseVoice
-  - ONNX
-  - ASR
-  - LLM
-  - VAD
-  - hotwords
-  - corrector
-  - WASAPI
-  - trigger
-  - tray
-  - clipboard
-  - recorder
+project:
+  audio input: audio-input
+  audio in put: audio-input
+  sense voice: SenseVoice
+  cents voice: SenseVoice
+  center voice: SenseVoice
+  sharper onyx: sherpa-onnx
+  sherpa onyx: sherpa-onnx
+  sherpa onyx: sherpa-onnx
+  sharper onyx: sherpa-onnx
+  onyx: ONNX
+  欧尼克斯: ONNX
+  llm: LLM
+  l l m: LLM
+  a s r: ASR
+  a s a r: ASR
+  aser: ASR
+  v a d: VAD
+  was api: WASAPI
+  was a p i: WASAPI
+  hot words: hotwords
+  correct: corrector
+  corrector: corrector
+  tray: tray
+  trigger: trigger
+  clip board: clipboard
 
-# ── 编程通用概念 ──
-programming_concepts:
-  - refactor
-  - implement
-  - function
-  - struct
-  - trait
-  - impl
-  - module
-  - compile
-  - debug
-  - release
-  - test
-  - async
-  - await
-  - error handling
-  - borrow checker
-  - lifetime
-  - ownership
-  - macro
-  - derive
-  - enum
-  - match
-  - iterator
-  - closure
-  - thread
-  - channel
-  - lock
-  - mutex
-  - Arc
-  - Rc
-  - Box
-  - HashMap
-  - Vec
-  - String
-  - Option
-  - Result
+# ── 文件/路径操作 ──
+filesystem:
+  config: config
+  configure: config
+  const: config
+  toml: TOML
+  tom: TOML
+  yaml: YAML
+  鸭毛: YAML
+  yamo: YAML
+  json: JSON
+  j son: JSON
+  jason: JSON
+  杰森: JSON
+  source: src
+  sauce: src
+  source code: src
+  source code: source code
+  lib: lib
+  directory: dir
+  dir: dir
+  directory tree: tree
+  path: path
+  怕斯: path
+  absolute path: absolute path
+  relative path: relative path
+  wild card: wildcard
+  wildcard: wildcard
+  glob: glob
+  glove: glob
+  regex: regex
+  reg x: regex
+  regular expression: regex
+  pattern: pattern
+  怕腾: pattern
 
-# ── 音近词修正映射 (ASR误识 → 正确术语) ──
-phonetic_corrections:
-  # Claude 相关
-  "close": "Claude"
-  "cloud": "Claude"
-  "clod": "Claude"
-  "clawed": "Claude"
-  "克劳德": "Claude"
-  "科洛德": "Claude"
-  "克洛德": "Claude"
-
-  # Claude Code
-  "close code": "Claude Code"
-  "cloud code": "Claude Code"
-
-  # code 相关
-  "扣的": "code"
-  "口德": "code"
-
-  # fable
-  "飞波": "Fable"
-  "飞博": "Fable"
-  "菲博": "Fable"
-
-  # opus
-  "欧普斯": "Opus"
-  "奥普斯": "Opus"
-  "欧布斯": "Opus"
-
-  # sonnet
-  "索尼特": "Sonnet"
-  "索内特": "Sonnet"
-  "桑尼特": "Sonnet"
-
-  # haiku
-  "海库": "Haiku"
-  "嗨库": "Haiku"
-
-  # git 相关
-  "吉特": "git"
-  "歌特": "git"
-  "给特": "git"
-  "gate": "git"
-  "get": "git"
-  "git add": "git add"
-  "get add": "git add"
-  "git com": "git commit"
-  "get commit": "git commit"
-  "git push": "git push"
-  "get push": "git push"
-  "git pool": "git pull"
-  "get pull": "git pull"
-  "git check out": "git checkout"
-  "get check out": "git checkout"
-  "git branch": "git branch"
-  "get branch": "git branch"
-  "git merge": "git merge"
-  "get merge": "git merge"
-  "git rebase": "git rebase"
-  "get rebase": "git rebase"
-  "git stash": "git stash"
-  "get stash": "git stash"
-  "git reset": "git reset"
-  "get reset": "git reset"
-  "git clone": "git clone"
-  "get clone": "git clone"
-
-  # cargo 相关
-  "卡狗": "cargo"
-  "咔够": "cargo"
-  "car go": "cargo"
-  "卡狗 build": "cargo build"
-  "卡狗 run": "cargo run"
-  "卡狗 test": "cargo test"
-  "car go build": "cargo build"
-  "car go run": "cargo run"
-  "car go test": "cargo test"
-
-  # npm/pnpm/yarn
-  "n p m": "npm"
-  "npm install": "npm install"
-  "n p m install": "npm install"
-  "屁眼": "pnpm"
-  "p n p m": "pnpm"
-  "p npm": "pnpm"
-
-  # Rust 概念
-  "rest": "Rust"
-  "rustc": "rustc"
-  "rustup": "rustup"
-  "tracked": "trait"
-  "impl": "impl"
-  "struct": "struct"
-  "struck": "struct"
-  "inum": "enum"
-  "matte": "match"
-  "mute x": "Mutex"
-  "ark": "Arc"
-  "derive": "derive"
-  "closure": "closure"
-  "iterator": "iterator"
-
-  # 编程通用
-  "refactor": "refactor"
-  "re factor": "refactor"
-  "compile": "compile"
-  "compile": "compile"
-  "debug": "debug"
-  "a sync": "async"
-  "a sink": "async"
-  "await": "await"
-  "a wait": "await"
-  "error handling": "error handling"
-  "borrow checker": "borrow checker"
-  "borrow check": "borrow checker"
-  "life time": "lifetime"
-  "ownership": "ownership"
-  "owner ship": "ownership"
-  "marco": "macro"
-  "module": "module"
-
-  # 本项目术语
-  "sense voice": "SenseVoice"
-  "sharper onyx": "sherpa-onnx"
-  "sherpa onyx": "sherpa-onnx"
-  "sherpa onyx": "sherpa-onnx"
-  "欧尼克斯": "ONNX"
-  "欧尼克斯 ren time": "ONNX Runtime"
-  "audio input": "audio-input"
-  "hot words": "hotwords"
-  "corrector": "corrector"
-  "correct": "corrector"
-  "was Api": "WASAPI"
-  "was a p i": "WASAPI"
-
-  # 常见 CLI 参数
-  "verbose": "--verbose"
-  "force": "--force"
-  "yes": "--yes"
-  "no verify": "--no-verify"
-  "recursive": "--recursive"
-
-# ── 口语填充词 (LLM 移除) ──
+# ── 常见口语填充 (LLM 自动移除) ──
 filler_words:
   - 嗯
   - 啊
@@ -296,3 +335,5 @@ filler_words:
   - 就是那个
   - 怎么说呢
   - 对了
+  - 反正
+  - 这样子
