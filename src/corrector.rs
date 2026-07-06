@@ -78,7 +78,7 @@ impl Corrector {
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: "你是一个Claude Code编程语音修正器。用户通过语音输入与Claude Code AI编程助手对话。你的任务：1) 用已知热词替换ASR误识的音近词 2) 修正后通读确保语义通顺 3) 删除与编程完全无关的内容 4) 只输出最终文本，不加解释。".to_string(),
+                    content: "你是Claude Code编程语音修正器。用户语音识别(ASR)的原始文本经过音近词快速替换后发给你。你需要在编程/Claude Code上下文中做二次修正:\n\n1. 对照音近替换参考表,检查是否有漏掉或错配的音近词,用正确的编程术语替换\n2. 修正后通读全文——如果读起来不通顺或不符合编程语境,再次调整替换\n3. 删除与编程/开发完全无关的口语闲聊、纯寒暄\n4. 保留编程指令、技术讨论、代码操作、CLI命令等编程相关内容\n5. 输出整理为清晰、直接的自然语言\n\n输出规则: 只输出最终修正后的文本,不加前缀/引号/解释/备注。如果原始输入与编程完全无关,输出(空)。".to_string(),
                 },
                 ChatMessage {
                     role: "user".to_string(),
@@ -124,15 +124,9 @@ impl Corrector {
     fn build_correction_prompt(&self, raw_text: &str) -> String {
         let hotwords_context = self.hotwords.get_prompt_context();
         format!(
-            "你是一个Claude Code编程语音修正器。用户正在用语音与Claude Code AI编程助手对话。\n\n\
-             编程热词/术语参考（按类别）：\n{}\n\
-             修正规则：\n\
-             1. **音近词替换**: 将ASR误识的词替换为参考热词表中最接近的编程术语。例如\"close\"→\"Claude\", \"卡狗\"→\"cargo\", \"get commit\"→\"git commit\"\n\
-             2. **上下文验证**: 替换后通读整句，确保语义在编程上下文中通顺。不通顺则重新选择替换词\n\
-             3. **内容过滤**: 删除与编程/Claude Code完全无关的口语闲聊，保留编程指令、技术讨论、代码操作\n\
-             4. **整理输出**: 将保留的编程内容整理为清晰、直接的自然语言指令\n\n\
-             原始ASR语音文本：{}\n\n\
-             只输出最终修正整理后的文本（纯文本，不要前缀、不要引号、不要任何解释）：",
+            "音近词替换参考（ASR误识→正确术语, 请在修正时参照此表）：\n{}\n\n\
+             经快速替换后的文本（可能仍有漏配/错配的音近词,需你二次修正）：\n「{}」\n\n\
+             请输出最终修正后文本：",
             hotwords_context,
             raw_text
         )
