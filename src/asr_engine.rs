@@ -2,13 +2,17 @@
 //!
 //! 避免了 FFI 结构体对齐问题。
 //! 将 PCM f32 音频写入临时 WAV 文件，调用 sherpa-onnx-offline.exe 识别，
-//! 读取 stdout 获取结果文本。
+//! 读取 stdout 获取结果文本。无控制台窗口 (CREATE_NO_WINDOW)。
 
 use anyhow::{Context, Result};
 use log::{info, warn, debug};
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
+use std::os::windows::process::CommandExt;
+
+/// Windows: 隐藏子进程控制台窗口
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub struct AsrEngine {
     model_path: std::path::PathBuf,
@@ -70,6 +74,7 @@ impl AsrEngine {
         let wav_str = wav_path.to_str().unwrap().to_string();
 
         let output = Command::new(&self.sherpa_exe)
+            .creation_flags(CREATE_NO_WINDOW)
             .args([
                 format!("--sense-voice-model={}", model_str),
                 format!("--tokens={}", tokens_str),

@@ -43,6 +43,43 @@ impl TrayManager {
 }
 
 #[cfg(windows)]
+fn load_tray_icon() -> Option<windows::Win32::UI::WindowsAndMessaging::HICON> {
+    use windows::Win32::UI::WindowsAndMessaging::*;
+    use windows::Win32::Foundation::*;
+
+    let candidates = [
+        std::path::PathBuf::from("assets/tray_icon.ico"),
+        std::path::PathBuf::from("tray_icon.ico"),
+    ];
+    let exe_dir = std::env::current_exe().ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()));
+    if let Some(ref d) = exe_dir {
+        // prepend exe dir
+    }
+
+    let paths: Vec<std::path::PathBuf> = exe_dir.iter()
+        .flat_map(|d| vec![d.join("tray_icon.ico")])
+        .chain(candidates.into_iter())
+        .collect();
+
+    for p in &paths {
+        let wide: Vec<u16> = p.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
+        unsafe {
+            let h = LoadImageW(
+                None,
+                windows::core::PCWSTR::from_raw(wide.as_ptr()),
+                IMAGE_ICON, 0, 0,
+                LR_LOADFROMFILE | LR_DEFAULTSIZE,
+            );
+            if let Ok(h) = h {
+                return Some(windows::Win32::UI::WindowsAndMessaging::HICON(h.0));
+            }
+        }
+    }
+    None
+}
+
+#[cfg(windows)]
 fn run_tray(tooltip: String, running: Arc<AtomicBool>) {
     use windows::Win32::UI::Shell::*;
     use windows::Win32::UI::WindowsAndMessaging::*;
@@ -70,7 +107,8 @@ fn run_tray(tooltip: String, running: Arc<AtomicBool>) {
         RegisterClassExW(&wc);
         let Ok(hwnd) = CreateWindowExW(WINDOW_EX_STYLE::default(), PCWSTR::from_raw(cn.as_ptr()), PCWSTR::from_raw(cn.as_ptr()), WS_OVERLAPPED, 0, 0, 0, 0, None, None, hinstance, None) else { return };
 
-        let Ok(icon) = LoadIconW(None, IDI_APPLICATION) else { return };
+        // 加载自定义图标 (黄底红a)
+        let icon = load_tray_icon().unwrap_or_else(|| LoadIconW(None, IDI_APPLICATION).unwrap_or_default());
         let tip_wide: Vec<u16> = tooltip.encode_utf16().take(127).chain(std::iter::once(0)).collect();
         let mut tip_arr = [0u16; 128];
         let n = tip_wide.len().min(127);
@@ -99,6 +137,21 @@ fn run_tray(tooltip: String, running: Arc<AtomicBool>) {
         let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
         let _ = DestroyWindow(hwnd);
     }
+}
+
+#[cfg(windows)]
+unsafe fn destroy_tray(hwnd: windows::Win32::Foundation::HWND) {
+    use windows::Win32::UI::Shell::*;
+    use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
+    const ID_TRAY: u32 = 1;
+    let mut nid = NOTIFYICONDATAW {
+        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: hwnd,
+        uID: ID_TRAY,
+        ..Default::default()
+    };
+    let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
+    let _ = DestroyWindow(hwnd);
 }
 
 #[cfg(windows)]
@@ -132,7 +185,11 @@ unsafe extern "system" fn tray_wndproc(hwnd: windows::Win32::Foundation::HWND, m
     } else if msg == WM_COMMAND {
         match wparam.0 as usize {
             IDM_COPY => tray_copy(),
-            IDM_EXIT => PostQuitMessage(0),
+            IDM_EXIT => {
+                // 直接退出进程 (windows_subsystem 模式下 PostQuitMessage 不够)
+                destroy_tray(hwnd);
+                std::process::exit(0);
+            }
             _ => {}
         }
     }

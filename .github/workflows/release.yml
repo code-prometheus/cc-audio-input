@@ -30,6 +30,7 @@ jobs:
           Copy-Item assets/sherpa-onnx-offline.exe $pkg/
           Copy-Item assets/onnxruntime.dll $pkg/
           Copy-Item assets/onnxruntime_providers_shared.dll $pkg/
+          Copy-Item assets/tray_icon.ico $pkg/
           Copy-Item settings.example.json $pkg/
 
           # INSTALL.txt with model & config instructions
