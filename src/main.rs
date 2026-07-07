@@ -1,5 +1,8 @@
 //! audio-input v0.3
 //! 按住鼠标左键3秒 → 录音 → SenseVoice ASR → LLM修正 → Ctrl+V
+//! Windows子系统模式: 无命令行窗口, 纯托盘运行, 日志写文件
+
+#![windows_subsystem = "windows"]
 
 mod config;
 mod trigger;
@@ -15,11 +18,32 @@ mod cursor;
 use log::{info, error, warn};
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::io::Write;
+
+fn init_logging() {
+    let exe_dir = std::env::current_exe()
+        .ok().and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("."));
+    let log_path = exe_dir.join("audio-input.log");
+
+    let file = std::fs::OpenOptions::new()
+        .create(true).append(true).open(&log_path)
+        .expect("无法创建日志文件");
+
+    let mut builder = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("info")
+    );
+    builder.format_timestamp_millis()
+        .format(|buf, record| {
+            writeln!(buf, "[{} {} {}] {}",
+                buf.timestamp_millis(), record.level(), record.target(), record.args())
+        })
+        .target(env_logger::Target::Pipe(Box::new(file)))
+        .init();
+}
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
-        .format_timestamp_millis()
-        .init();
+    init_logging();
 
     info!("🚀 audio-input v0.3");
 
