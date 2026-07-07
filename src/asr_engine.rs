@@ -75,6 +75,9 @@ impl AsrEngine {
 
         let output = Command::new(&self.sherpa_exe)
             .creation_flags(CREATE_NO_WINDOW)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .args([
                 format!("--sense-voice-model={}", model_str),
                 format!("--tokens={}", tokens_str),
