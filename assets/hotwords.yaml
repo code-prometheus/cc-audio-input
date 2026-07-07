@@ -98,6 +98,18 @@ claude_ai:
   slow mode: /model
   switch model: /model
   change model: /model
+  # 环境变量 + model (ASR高频)
+  model: model
+  毛豆: model
+  猫都: model
+  摩托: model
+  魔都: model
+  莫得: model
+  in model: env model
+  env model: env model
+  model name: model
+  model select: /model
+  change model: /model
   # Anthropic
   an throw pick: Anthropic
   an propic: Anthropic
