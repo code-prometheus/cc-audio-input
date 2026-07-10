@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: write
+  actions: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Test
+        run: cargo test --release
+
+      - name: Package
+        shell: pwsh
+        run: |
+          mkdir artifact
+          copy target/release/audio-input.exe artifact/
+          copy hotwords.yaml artifact/
+          copy models.yaml artifact/
+          # Copy sherpa_dll directory (ASR CLI dependency)
+          mkdir artifact/sherpa_dll
+          copy sherpa_dll/sherpa-onnx-asr-x64.exe artifact/sherpa_dll/
+          mkdir artifact/sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin
+          copy sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/sherpa-onnx-offline.exe artifact/sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/
+          Compress-Archive -Path artifact/* -DestinationPath audio-input-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio-input-windows-x64
+          path: audio-input-windows-x64.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-and-test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: audio-input-windows-x64
+
+      - name: Create GitHub Release
+        shell: bash
+        run: |
+          gh release create "${{ github.ref_name }}" audio-input-windows-x64.zip \
+            --title "audio-input ${{ github.ref_name }}" \
+            --generate-notes \
+            --repo "${{ github.repository }}"
+        env:
+          GH_TOKEN: ${{ github.token }}

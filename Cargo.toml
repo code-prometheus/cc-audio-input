@@ -1,8 +1,8 @@
 [package]
 name = "audio-input"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
-description = "Voice + LLM CLI prompt input — hold left mouse 3s to trigger ASR + LLM correction + paste"
+description = "Voice + LLM CLI prompt input — hold left mouse 1.5s to trigger ASR + LLM correction + paste"
 
 [[bin]]
 name = "audio-input"

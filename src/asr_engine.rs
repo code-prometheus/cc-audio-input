@@ -37,7 +37,8 @@ impl AsrEngine {
 
         // 查找 sherpa-onnx-offline.exe
         let sherpa_candidates = [
-            Path::new("sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/sherpa-onnx-offline.exe"),
+            Path::new("assets/sherpa-onnx-offline.exe"),
+        Path::new("sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/sherpa-onnx-offline.exe"),
             Path::new("target/release/sherpa-onnx-offline.exe"),
             Path::new("sherpa_dll/sherpa-onnx-offline.exe"),
         ];

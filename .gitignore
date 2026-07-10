@@ -13,15 +13,8 @@ stderr.txt
 settings.json
 models/
 release/
-sherpa_dll/
-*.dll
-*.exe
-*.lib
-# assets 目录只追踪 hotwords.yaml + tray_icon.ico + sherpa二进制
-assets/*
-!assets/hotwords.yaml
-!assets/tray_icon.ico
-!assets/sherpa-onnx-offline.exe
-!assets/onnxruntime.dll
-!assets/onnxruntime_providers_shared.dll
-RUST_TRAY_EXPERIENCE.md
+# 只排除 sherpa_dll 中的 DLL 提取残留
+sherpa_dll/extracted/
+# 排除 sherpa DLL 本体，保留 exe
+sherpa_dll/*.dll
+sherpa_dll/*.lib

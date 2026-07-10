@@ -1,0 +1,19 @@
+# LLM 模型配置
+# active: 当前激活的模型名称
+# models: 可用模型列表
+
+active: "默认 (dsv4)"
+
+models:
+  - name: "默认 (dsv4)"
+    base_url: "http://122.1.231.24:8000/v1"
+    api_key: "none"
+    model: "dsv4"
+    verify_ssl: false
+
+  # 可添加更多模型:
+  # - name: "本地模型"
+  #   base_url: "http://localhost:11434/v1"
+  #   api_key: "none"
+  #   model: "llama3"
+  #   verify_ssl: false
