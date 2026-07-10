@@ -17,6 +17,11 @@ sherpa_dll/
 *.dll
 *.exe
 *.lib
+# assets 目录只追踪 hotwords.yaml + tray_icon.ico + sherpa二进制
+assets/*
+!assets/hotwords.yaml
+!assets/tray_icon.ico
 !assets/sherpa-onnx-offline.exe
 !assets/onnxruntime.dll
 !assets/onnxruntime_providers_shared.dll
+RUST_TRAY_EXPERIENCE.md

@@ -1,9 +1,19 @@
-//! 系统托盘 — Shell_NotifyIconW
-//! 托盘图标 + 右键(拷贝/退出) + show_notification 更新 tooltip
+//! 系统托盘 — tray-icon + winit (按 RUST_TRAY_EXPERIENCE.md 经验)
+//!
+//! 主线程: winit EventLoop + ApplicationHandler
+//! 后台: 录音/ASR/LLM 业务线程
+//! 菜单事件: about_to_wait + try_recv (唯一可行方案)
 
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
 use log::info;
+use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem};
+use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+use winit::application::ApplicationHandler;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event::WindowEvent;
+use winit::window::WindowId;
+use winit::platform::windows::EventLoopBuilderExtWindows;
 
 static mut G_LAST_RESULT: Option<Arc<Mutex<String>>> = None;
 
@@ -22,193 +32,169 @@ impl TrayManager {
 
         unsafe { G_LAST_RESULT = Some(lr.clone()); }
 
-        std::thread::spawn(move || run_tray(tip, run));
+        // ★ 必须在 build 之前获取 receiver (经验文档 4.2 步骤1)
+        let menu_rx = MenuEvent::receiver().clone();
+
+        // 后台线程: 托盘 event loop
+        std::thread::spawn(move || run_tray(tip, menu_rx, run));
 
         info!("📌 托盘已创建: {}", tooltip);
         Ok((Self { last_result: lr, running }, last_result))
     }
 
     pub fn stub() -> Self {
-        Self { last_result: Arc::new(Mutex::new(String::new())), running: Arc::new(AtomicBool::new(false)) }
+        Self {
+            last_result: Arc::new(Mutex::new(String::new())),
+            running: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     pub fn update_result(&self, text: &str) {
         if let Ok(mut r) = self.last_result.lock() { *r = text.to_string(); }
-        unsafe { G_LAST_RESULT = Some(self.last_result.clone()); }
     }
 
-    pub fn show_notification(&self, _title: &str, _body: &str) {
-        info!("💬 {}: {}", _title, _body);
+    pub fn show_notification(&self, title: &str, body: &str) {
+        info!("💬 {}: {}", title, body);
     }
 }
 
-#[cfg(windows)]
-fn load_tray_icon() -> Option<windows::Win32::UI::WindowsAndMessaging::HICON> {
-    use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::Win32::Foundation::*;
-
-    let candidates = [
+fn load_icon() -> Icon {
+    // 从文件加载 (经验文档: from_path/from_rgba)
+    let paths = [
         std::path::PathBuf::from("assets/tray_icon.ico"),
         std::path::PathBuf::from("tray_icon.ico"),
     ];
     let exe_dir = std::env::current_exe().ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-    if let Some(ref d) = exe_dir {
-        // prepend exe dir
-    }
-
-    let paths: Vec<std::path::PathBuf> = exe_dir.iter()
+    let search: Vec<std::path::PathBuf> = exe_dir.iter()
         .flat_map(|d| vec![d.join("tray_icon.ico")])
-        .chain(candidates.into_iter())
+        .chain(paths)
         .collect();
 
-    for p in &paths {
-        let wide: Vec<u16> = p.to_string_lossy().encode_utf16().chain(std::iter::once(0)).collect();
-        unsafe {
-            let h = LoadImageW(
-                None,
-                windows::core::PCWSTR::from_raw(wide.as_ptr()),
-                IMAGE_ICON, 0, 0,
-                LR_LOADFROMFILE | LR_DEFAULTSIZE,
-            );
-            if let Ok(h) = h {
-                return Some(windows::Win32::UI::WindowsAndMessaging::HICON(h.0));
+    for p in &search {
+        if p.exists() {
+            if let Ok(icon) = Icon::from_path(p, None) {
+                info!("✅ 图标加载: {}", p.display());
+                return icon;
             }
         }
     }
-    None
-}
 
-#[cfg(windows)]
-fn run_tray(tooltip: String, running: Arc<AtomicBool>) {
-    use windows::Win32::UI::Shell::*;
-    use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::Win32::Foundation::*;
-    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows::core::PCWSTR;
-    use windows::Win32::System::DataExchange::*;
-    use windows::Win32::System::Memory::*;
-
-    const WM_TRAYICON: u32 = WM_USER + 1;
-    const ID_TRAY: u32 = 1;
-    const IDM_COPY: usize = 100;
-    const IDM_EXIT: usize = 101;
-
-    unsafe {
-        let Ok(hinstance) = GetModuleHandleW(None) else { return };
-        let cn: Vec<u16> = "AITrayCls\0".encode_utf16().collect();
-        let wc = WNDCLASSEXW {
-            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            lpfnWndProc: Some(tray_wndproc),
-            hInstance: hinstance.into(),
-            lpszClassName: PCWSTR::from_raw(cn.as_ptr()),
-            ..Default::default()
-        };
-        RegisterClassExW(&wc);
-        let Ok(hwnd) = CreateWindowExW(WINDOW_EX_STYLE::default(), PCWSTR::from_raw(cn.as_ptr()), PCWSTR::from_raw(cn.as_ptr()), WS_OVERLAPPED, 0, 0, 0, 0, None, None, hinstance, None) else { return };
-
-        // 加载自定义图标 (黄底红a)
-        let icon = load_tray_icon().unwrap_or_else(|| LoadIconW(None, IDI_APPLICATION).unwrap_or_default());
-        let tip_wide: Vec<u16> = tooltip.encode_utf16().take(127).chain(std::iter::once(0)).collect();
-        let mut tip_arr = [0u16; 128];
-        let n = tip_wide.len().min(127);
-        tip_arr[..n].copy_from_slice(&tip_wide[..n]);
-
-        let nid = NOTIFYICONDATAW {
-            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
-            hWnd: hwnd,
-            uID: ID_TRAY,
-            uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
-            uCallbackMessage: WM_TRAYICON,
-            hIcon: icon,
-            szTip: tip_arr,
-            ..Default::default()
-        };
-        let _ = Shell_NotifyIconW(NIM_ADD, &nid);
-
-        let mut msg = MSG::default();
-        while running.load(Ordering::SeqCst) {
-            if GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+    // Fallback: 程序化黄底圆
+    info!("⚠️  图标文件未找到, 使用程序化生成");
+    let (w, h) = (32u32, 32u32);
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    let cx = 16.0f32; let cy = 16.0f32; let r = 14.0f32;
+    for y in 0..h {
+        for x in 0..w {
+            let dx = x as f32 - cx + 0.5;
+            let dy = y as f32 - cy + 0.5;
+            let idx = ((y * w + x) * 4) as usize;
+            if (dx * dx + dy * dy) <= r * r {
+                rgba[idx] = 255;     // R
+                rgba[idx + 1] = 215; // G
+                rgba[idx + 2] = 0;   // B
+                rgba[idx + 3] = 255; // A
             }
         }
-
-        let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
-        let _ = DestroyWindow(hwnd);
     }
+    Icon::from_rgba(rgba, w, h).unwrap()
 }
 
-#[cfg(windows)]
-unsafe fn destroy_tray(hwnd: windows::Win32::Foundation::HWND) {
-    use windows::Win32::UI::Shell::*;
-    use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
-    const ID_TRAY: u32 = 1;
-    let mut nid = NOTIFYICONDATAW {
-        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
-        hWnd: hwnd,
-        uID: ID_TRAY,
-        ..Default::default()
+fn build_menu() -> Menu {
+    let menu = Menu::new();
+    // ★ with_id 绑定菜单 ID (经验文档: 必须用 with_id)
+    menu.append(&MenuItem::with_id(MenuId::new("copy".to_string()), "📋 拷贝最后结果", true, None)).ok();
+    menu.append(&MenuItem::with_id(MenuId::new("exit".to_string()), "❌ 退出", true, None)).ok();
+    menu
+}
+
+fn run_tray(tooltip: String, menu_rx: crossbeam_channel::Receiver<MenuEvent>, running: Arc<AtomicBool>) {
+    // ★ 用 any_thread 允许非主线程创建 EventLoop (tray-icon + winit 要求)
+    let Ok(event_loop) = winit::event_loop::EventLoopBuilder::new()
+        .with_any_thread(true)
+        .build() else {
+        info!("❌ 无法创建 EventLoop");
+        return;
     };
-    let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
-    let _ = DestroyWindow(hwnd);
+
+    let icon = load_icon();
+    let tray = TrayIconBuilder::new()
+        .with_tooltip(tooltip)
+        .with_icon(icon)
+        .with_menu(Box::new(build_menu()))
+        .build()
+        .ok();
+
+    let mut app = TrayApp {
+        tray,
+        menu_rx,
+        running: running.clone(),
+    };
+
+    if event_loop.run_app(&mut app).is_err() {
+        info!("托盘退出");
+    }
+    running.store(false, Ordering::SeqCst);
 }
 
-#[cfg(windows)]
-unsafe extern "system" fn tray_wndproc(hwnd: windows::Win32::Foundation::HWND, msg: u32, wparam: windows::Win32::Foundation::WPARAM, lparam: windows::Win32::Foundation::LPARAM) -> windows::Win32::Foundation::LRESULT {
-    use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::Win32::UI::Shell::*;
-    use windows::Win32::System::DataExchange::*;
-    use windows::Win32::System::Memory::*;
-    use windows::core::PCWSTR;
+struct TrayApp {
+    tray: Option<TrayIcon>,
+    menu_rx: crossbeam_channel::Receiver<MenuEvent>,
+    running: Arc<AtomicBool>,
+}
 
-    const WM_TRAYICON: u32 = WM_USER + 1;
-    const IDM_COPY: usize = 100;
-    const IDM_EXIT: usize = 101;
+impl ApplicationHandler for TrayApp {
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
-    if msg == WM_TRAYICON {
-        let l = lparam.0 as u32;
-        if l == WM_RBUTTONUP || l == WM_CONTEXTMENU {
-            let mut pt = windows::Win32::Foundation::POINT::default();
-            let _ = GetCursorPos(&mut pt);
-            let menu = CreatePopupMenu().unwrap_or(HMENU(std::ptr::null_mut()));
-            let copy_text: Vec<u16> = "📋 拷贝最后结果\0".encode_utf16().collect();
-            let exit_text: Vec<u16> = "❌ 退出\0".encode_utf16().collect();
-            let _ = AppendMenuW(menu, MF_STRING, IDM_COPY, PCWSTR::from_raw(copy_text.as_ptr()));
-            let _ = AppendMenuW(menu, MF_STRING, IDM_EXIT, PCWSTR::from_raw(exit_text.as_ptr()));
-            let _ = SetForegroundWindow(hwnd);
-            let _ = TrackPopupMenu(menu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, pt.x, pt.y, 0, hwnd, None);
-            let _ = DestroyMenu(menu);
-        } else if l == WM_LBUTTONDBLCLK {
-            tray_copy();
+    fn window_event(&mut self, _event_loop: &ActiveEventLoop, _id: WindowId, _event: WindowEvent) {}
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // ★ 经验文档核心: 在这里 try_recv 是唯一能收到菜单事件的方式
+        while let Ok(event) = self.menu_rx.try_recv() {
+            handle_menu_id(&event.id.0, self.tray.as_mut());
         }
-    } else if msg == WM_COMMAND {
-        match wparam.0 as usize {
-            IDM_COPY => tray_copy(),
-            IDM_EXIT => {
-                // 直接退出进程 (windows_subsystem 模式下 PostQuitMessage 不够)
-                destroy_tray(hwnd);
-                std::process::exit(0);
-            }
-            _ => {}
+
+        if !self.running.load(Ordering::SeqCst) {
+            event_loop.exit();
         }
     }
-    DefWindowProcW(hwnd, msg, wparam, lparam)
 }
 
-unsafe fn tray_copy() {
-    let text = G_LAST_RESULT.as_ref().and_then(|lr| lr.lock().ok()).map(|r| r.clone()).unwrap_or_else(|| "(空)".to_string());
-    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-    let size = wide.len() * 2;
-    if let Ok(hmem) = windows::Win32::System::Memory::GlobalAlloc(windows::Win32::System::Memory::GMEM_MOVEABLE, size) {
-        let ptr = windows::Win32::System::Memory::GlobalLock(hmem);
-        if !ptr.is_null() {
-            std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr as *mut u16, wide.len());
-            windows::Win32::System::Memory::GlobalUnlock(hmem);
-            windows::Win32::System::DataExchange::OpenClipboard(None).ok();
-            windows::Win32::System::DataExchange::EmptyClipboard().ok();
-            windows::Win32::System::DataExchange::SetClipboardData(13u32, windows::Win32::Foundation::HANDLE(hmem.0)).ok();
-            windows::Win32::System::DataExchange::CloseClipboard();
+fn handle_menu_id(id_str: &str, _tray: Option<&mut TrayIcon>) {
+    match id_str {
+        "copy" => tray_copy(),
+        "exit" => {
+            info!("👋 用户退出");
+            std::process::exit(0);
+        }
+        _ => {}
+    }
+}
+
+fn tray_copy() {
+    #[cfg(windows)]
+    unsafe {
+        let text = G_LAST_RESULT.as_ref()
+            .and_then(|lr| lr.lock().ok())
+            .map(|r| r.clone())
+            .unwrap_or_else(|| "(空)".to_string());
+        let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        let size = wide.len() * 2;
+        if let Ok(hmem) = windows::Win32::System::Memory::GlobalAlloc(
+            windows::Win32::System::Memory::GMEM_MOVEABLE, size,
+        ) {
+            let ptr = windows::Win32::System::Memory::GlobalLock(hmem);
+            if !ptr.is_null() {
+                std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr as *mut u16, wide.len());
+                windows::Win32::System::Memory::GlobalUnlock(hmem);
+                windows::Win32::System::DataExchange::OpenClipboard(None).ok();
+                windows::Win32::System::DataExchange::EmptyClipboard().ok();
+                windows::Win32::System::DataExchange::SetClipboardData(
+                    13u32, windows::Win32::Foundation::HANDLE(hmem.0),
+                ).ok();
+                windows::Win32::System::DataExchange::CloseClipboard();
+            }
         }
     }
 }
