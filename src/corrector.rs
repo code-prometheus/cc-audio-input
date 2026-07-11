@@ -72,15 +72,15 @@ impl Corrector {
         // 本地快速音近替换
         let text = self.hotwords.quick_correct(raw_text);
         let prompt = self.build_correction_prompt(&text);
-        info!("🔧 修正prompt长度: {} chars, 热词映射: {} 条",
-              prompt.len(), self.hotwords.phonetic_count());
+        info!("修正prompt长度: {} chars, 热词映射: {} 条",
+            prompt.len(), self.hotwords.phonetic_count());
 
         let request = ChatRequest {
             model: self.settings.model.clone(),
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: "你是Claude Code编程语音修正器。输入是语音识别(ASR)文本,已经过初步音近词替换。你需要在编程上下文中做二次修正:\n\n1. **识别孤立大写字母/短字母**: 如果文本中出现看不懂的孤立字母(如Q/K/G/V等)或短字母组合,很可能是ASR把整词误识别为字母——尝试根据上下文和参考表将其替换为正确的编程术语(例如Q→Claude Code, G→GitHub, V→VSCode)\n2. 对照参考表检查音近词,用正确术语替换(close→Claude, 卡狗→cargo等)\n3. 修正后通读——不通顺则重新调整\n4. 删除与编程完全无关的闲聊\n5. 输出为清晰直接的自然语言\n\n输出规则: 只输出修正后的文本,不加前缀/引号/解释。与编程无关则输出(空)。".to_string(),
+                    content: "你是CLI语音修正器。将ASR原始文本修正为正确的编程命令文本。\n规则:\n1. 根据参考表替换音近词(close→claude)\n2. 修正标点大小写\n3. 删除口语填充词(嗯啊那个)\n\n只输出修正后文本。闲聊输出(空)。".to_string(),
                 },
                 ChatMessage {
                     role: "user".to_string(),
@@ -92,7 +92,7 @@ impl Corrector {
         };
 
         let url = format!("{}/chat/completions", self.settings.base_url.trim_end_matches('/'));
-        info!("🔧 调用 LLM: {} @ {}", self.settings.model, url);
+        info!("调用 LLM: {} @ {}", self.settings.model, url);
 
         let mut req = self.client
             .post(&url)
@@ -126,9 +126,7 @@ impl Corrector {
     fn build_correction_prompt(&self, raw_text: &str) -> String {
         let hotwords_context = self.hotwords.get_prompt_context();
         format!(
-            "音近词替换参考（ASR误识→正确术语, 请在修正时参照此表）：\n{}\n\n\
-             经快速替换后的文本（可能仍有漏配/错配的音近词,需你二次修正）：\n「{}」\n\n\
-             请输出最终修正后文本：",
+            "音近词参考表(ASR误识→正确术语):\n{}\n\n经快速替换后的文本:\n「{}」\n\n请输出修正后文本:",
             hotwords_context,
             raw_text
         )

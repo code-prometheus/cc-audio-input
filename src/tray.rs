@@ -1,63 +1,28 @@
-//! 系统托盘 — 增强版 Win32 Shell_NotifyIconW
-//! - 多级菜单：状态/录音/设备/LLM模型/拷贝/退出
-//! - 手动录音触发通道
-//! - 动态菜单更新
+//! 系统托盘 — tray-icon + winit (按经验文档方案)
+//! 主线程: winit EventLoop + ApplicationHandler (菜单事件在 about_to_wait 中 try_recv)
+//! 后台: 录音/ASR/LLM 业务通过 channel 通信
+//! 图标: 程序化生成 黑底白色小a
 
 use std::sync::{Arc, Mutex, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use log::info;
+use tray_icon::menu::{Menu, MenuEvent, MenuId, MenuItem, PredefinedMenuItem};
+use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
+use winit::application::ApplicationHandler;
+use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event::WindowEvent;
+use winit::window::WindowId;
 
 static mut G_LAST_RESULT: Option<Arc<Mutex<String>>> = None;
 static mut G_TRIGGER_TX: Option<mpsc::Sender<()>> = None;
+static mut G_RUNNING: Option<Arc<AtomicBool>> = None;
 
 pub struct TrayManager {
     last_result: Arc<Mutex<String>>,
     running: Arc<AtomicBool>,
 }
 
-/// 菜单项 ID 常量
-mod menu_ids {
-    pub const ID_STATUS: usize = 200;
-    pub const ID_SEP1: usize = 300;
-    pub const ID_RECORD: usize = 400;
-    pub const ID_SEP2: usize = 500;
-    pub const ID_MIC_SUBMENU: usize = 600;
-    pub const ID_MIC_BASE: usize = 601; // 601+idx
-    pub const ID_LLM_SUBMENU: usize = 700;
-    pub const ID_LLM_BASE: usize = 701; // 701+idx
-    pub const ID_SEP3: usize = 800;
-    pub const ID_COPY: usize = 900;
-    pub const ID_EXIT: usize = 901;
-}
-
 impl TrayManager {
-    pub fn create(
-        tooltip: &str,
-        trigger_tx: mpsc::Sender<()>,
-        input_devices: Vec<String>,
-        active_input: usize,
-        llm_models: Vec<String>,
-        active_llm: usize,
-    ) -> Result<(Self, Arc<Mutex<String>>), String> {
-        let last_result = Arc::new(Mutex::new(String::new()));
-        let running = Arc::new(AtomicBool::new(true));
-        let lr = last_result.clone();
-        let run = running.clone();
-        let tip = tooltip.to_string();
-
-        unsafe {
-            G_LAST_RESULT = Some(lr.clone());
-            G_TRIGGER_TX = Some(trigger_tx.clone());
-        }
-
-        std::thread::spawn(move || {
-            run_tray(tip, run, trigger_tx, input_devices, active_input, llm_models, active_llm);
-        });
-
-        info!("📌 托盘已创建: {}", tooltip);
-        Ok((Self { last_result: lr, running }, last_result))
-    }
-
     pub fn stub() -> Self {
         Self {
             last_result: Arc::new(Mutex::new(String::new())),
@@ -77,283 +42,481 @@ impl TrayManager {
     }
 }
 
-#[cfg(windows)]
-fn run_tray(
+/// 启动托盘并在主线程运行 event loop (阻塞)
+/// 在 about_to_wait 中处理: 菜单事件 + 鼠标轮询 + trigger channel
+pub fn run_tray_main<F1, F2>(
     tooltip: String,
-    running: Arc<AtomicBool>,
     trigger_tx: mpsc::Sender<()>,
+    trigger_rx: mpsc::Receiver<()>,
     input_devices: Vec<String>,
     active_input: usize,
     llm_models: Vec<String>,
     active_llm: usize,
-) {
-    use windows::Win32::UI::Shell::*;
-    use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::Win32::Foundation::*;
-    use windows::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows::core::PCWSTR;
-
-    const WM_TRAYICON: u32 = WM_USER + 1;
-    const ID_TRAY: u32 = 1;
+    hold_ms: u64,
+    on_trigger: F1,
+    on_release: F2,
+) where
+    F1: Fn() + Send + 'static,
+    F2: Fn() + Send + 'static,
+{
+    let last_result = Arc::new(Mutex::new(String::new()));
+    let running = Arc::new(AtomicBool::new(true));
 
     unsafe {
-        let Ok(hinstance) = GetModuleHandleW(None) else { return };
-        let cn: Vec<u16> = "AITrayCls\0".encode_utf16().collect();
-        let wc = WNDCLASSEXW {
-            cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            lpfnWndProc: Some(tray_wndproc),
-            hInstance: hinstance.into(),
-            lpszClassName: PCWSTR::from_raw(cn.as_ptr()),
-            ..Default::default()
-        };
-        RegisterClassExW(&wc);
-        let Ok(hwnd) = CreateWindowExW(
-            WINDOW_EX_STYLE::default(),
-            PCWSTR::from_raw(cn.as_ptr()),
-            PCWSTR::from_raw(cn.as_ptr()),
-            WS_OVERLAPPED,
-            0, 0, 0, 0,
-            None, None, hinstance, None,
-        ) else { return };
-
-        let Ok(icon) = LoadIconW(None, IDI_APPLICATION) else { return };
-        let tip_wide: Vec<u16> = tooltip.encode_utf16().take(127).chain(std::iter::once(0)).collect();
-        let mut tip_arr = [0u16; 128];
-        let n = tip_wide.len().min(127);
-        tip_arr[..n].copy_from_slice(&tip_wide[..n]);
-
-        let nid = NOTIFYICONDATAW {
-            cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
-            hWnd: hwnd,
-            uID: ID_TRAY,
-            uFlags: NIF_MESSAGE | NIF_ICON | NIF_TIP,
-            uCallbackMessage: WM_TRAYICON,
-            hIcon: icon,
-            szTip: tip_arr,
-            ..Default::default()
-        };
-        let _ = Shell_NotifyIconW(NIM_ADD, &nid);
-
-        // 将菜单数据存储到窗口属性中
-        let menu_data = Box::new(TrayMenuData {
-            trigger_tx,
-            input_devices,
-            active_input,
-            llm_models,
-            active_llm,
-        });
-        SetWindowLongPtrW(hwnd, GWLP_USERDATA, Box::into_raw(menu_data) as isize);
-
-        let mut msg = MSG::default();
-        while running.load(Ordering::SeqCst) {
-            if GetMessageW(&mut msg, None, 0, 0).as_bool() {
-                let _ = TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            }
-        }
-
-        // 清理
-        let ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut TrayMenuData;
-        if !ptr.is_null() {
-            drop(Box::from_raw(ptr));
-        }
-        let _ = Shell_NotifyIconW(NIM_DELETE, &nid);
-        let _ = DestroyWindow(hwnd);
+        G_LAST_RESULT = Some(last_result.clone());
+        G_TRIGGER_TX = Some(trigger_tx.clone());
+        G_RUNNING = Some(running.clone());
     }
+
+    // ★ 步骤1: 在 build() 之前获取 receiver
+    let menu_rx = MenuEvent::receiver().clone();
+
+    let Ok(event_loop) = EventLoop::new() else {
+        info!("❌ 无法创建 EventLoop");
+        return;
+    };
+
+    let icon = load_icon();
+    let tray = TrayIconBuilder::new()
+        .with_menu(Box::new(build_menu(&input_devices, active_input, &llm_models, active_llm)))
+        .with_icon(icon)
+        .with_tooltip(tooltip)
+        .build()
+        .ok();
+
+    let mut app = TrayApp {
+        tray,
+        menu_rx,
+        running: running.clone(),
+        last_result,
+        trigger_rx,
+        trigger_tx,
+        input_devices,
+        active_input,
+        llm_models,
+        active_llm,
+        hold_ms,
+        on_trigger: Some(Arc::new(on_trigger)),
+        on_release: Some(Arc::new(on_release)),
+        is_pressed: false,
+        press_start: None,
+        press_position: None,
+        mouse_move_threshold: 5.0,
+    };
+
+    let _ = event_loop.run_app(&mut app);
 }
 
-struct TrayMenuData {
+struct TrayApp<F1, F2>
+where
+    F1: Fn() + Send + 'static,
+    F2: Fn() + Send + 'static,
+{
+    tray: Option<TrayIcon>,
+    menu_rx: crossbeam_channel::Receiver<MenuEvent>,
+    running: Arc<AtomicBool>,
+    last_result: Arc<Mutex<String>>,
+    trigger_rx: mpsc::Receiver<()>,
     trigger_tx: mpsc::Sender<()>,
     input_devices: Vec<String>,
     active_input: usize,
     llm_models: Vec<String>,
     active_llm: usize,
+    hold_ms: u64,
+    on_trigger: Option<Arc<F1>>,
+    on_release: Option<Arc<F2>>,
+    // 鼠标状态
+    is_pressed: bool,
+    press_start: Option<std::time::Instant>,
+    press_position: Option<(f64, f64)>,
+    mouse_move_threshold: f64,
 }
 
-#[cfg(windows)]
-unsafe extern "system" fn tray_wndproc(
-    hwnd: windows::Win32::Foundation::HWND,
-    msg: u32,
-    wparam: windows::Win32::Foundation::WPARAM,
-    lparam: windows::Win32::Foundation::LPARAM,
-) -> windows::Win32::Foundation::LRESULT {
-    use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::Win32::Foundation::POINT;
+impl<F1, F2> ApplicationHandler for TrayApp<F1, F2>
+where
+    F1: Fn() + Send + 'static,
+    F2: Fn() + Send + 'static,
+{
+    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
+    fn window_event(&mut self, _event_loop: &ActiveEventLoop, _id: WindowId, _event: WindowEvent) {}
 
-    const WM_TRAYICON: u32 = WM_USER + 1;
-
-    if msg == WM_TRAYICON {
-        let l = lparam.0 as u32;
-        if l == WM_RBUTTONUP || l == WM_CONTEXTMENU {
-            let mut pt = POINT::default();
-            let _ = GetCursorPos(&mut pt);
-
-            let menu_data_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut TrayMenuData;
-            let menu = build_tray_menu(menu_data_ptr);
-            let _ = SetForegroundWindow(hwnd);
-            let _ = TrackPopupMenu(
-                menu,
-                TPM_BOTTOMALIGN | TPM_LEFTALIGN,
-                pt.x, pt.y, 0, hwnd, None,
-            );
-            // 菜单会在 WM_COMMAND 处理后销毁
-        } else if l == WM_LBUTTONDBLCLK {
-            // 双击 = 手动触发录音
-            tray_trigger(hwnd);
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // ★ 核心: 在 about_to_wait 中 try_recv 菜单事件
+        while let Ok(event) = self.menu_rx.try_recv() {
+            self.handle_menu(&event.id.0);
         }
-    } else if msg == WM_COMMAND {
-        let id = wparam.0 as usize;
-        handle_menu_action(hwnd, id);
+
+        // 检查手动触发 channel
+        if self.trigger_rx.try_recv().is_ok() {
+            self.do_trigger();
+        }
+
+        // ── 鼠标左键长按检测 ──
+        self.poll_mouse();
+
+        if !self.running.load(Ordering::SeqCst) {
+            event_loop.exit();
+        }
+    }
+}
+
+impl<F1, F2> TrayApp<F1, F2>
+where
+    F1: Fn() + Send + 'static,
+    F2: Fn() + Send + 'static,
+{
+    fn poll_mouse(&mut self) {
+        use windows::Win32::UI::Input::KeyboardAndMouse::*;
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+        let is_down = unsafe {
+            (GetAsyncKeyState(VK_LBUTTON.0 as i32) & 0x8000u16 as i16) != 0
+        };
+
+        let mut cursor = POINT::default();
+        let _ = unsafe { GetCursorPos(&mut cursor) };
+        let cur_pos = (cursor.x as f64, cursor.y as f64);
+
+        if is_down {
+            if !self.is_pressed {
+                // 刚按下
+                self.is_pressed = true;
+                self.press_start = Some(std::time::Instant::now());
+                self.press_position = Some(cur_pos);
+            } else {
+                // 持续按住中
+                if let (Some(start), Some(press_pos)) = (self.press_start, self.press_position) {
+                    // 检查鼠标是否移动了
+                    let dx = cur_pos.0 - press_pos.0;
+                    let dy = cur_pos.1 - press_pos.1;
+                    let moved = (dx * dx + dy * dy).sqrt();
+
+                    if moved > self.mouse_move_threshold {
+                        // 鼠标移动了 → 作废
+                        log::debug!("鼠标移动 {:.1}px → 作废本次按下", moved);
+                        self.is_pressed = false;
+                        self.press_start = None;
+                        self.press_position = None;
+                        return;
+                    }
+
+                    if start.elapsed().as_millis() as u64 >= self.hold_ms {
+                        // 按住不动达到阈值 → 触发!
+                        self.is_pressed = false;
+                        self.press_start = None;
+                        self.press_position = None;
+                        self.do_trigger();
+                    }
+                }
+            }
+        } else {
+            // 鼠标松开 → 重置
+            if self.is_pressed {
+                let elapsed = self.press_start
+                    .map(|s| s.elapsed().as_millis() as u64)
+                    .unwrap_or(0);
+                if elapsed > 50 {
+                    log::debug!("短按{}ms忽略", elapsed);
+                }
+            }
+            self.is_pressed = false;
+            self.press_start = None;
+            self.press_position = None;
+        }
     }
 
-    DefWindowProcW(hwnd, msg, wparam, lparam)
+    fn do_trigger(&self) {
+        log::info!("🎤 触发录音");
+        // 设置等待光标
+        set_cursor_wait();
+        if let Some(ref cb) = self.on_trigger {
+            cb();
+        }
+        // 短暂等待后开始监听释放
+        std::thread::sleep(std::time::Duration::from_millis(100));
+
+        // 等待鼠标松开
+        self.wait_for_release();
+    }
+
+    fn wait_for_release(&self) {
+        use windows::Win32::UI::Input::KeyboardAndMouse::*;
+        loop {
+            let still_down = unsafe {
+                (GetAsyncKeyState(VK_LBUTTON.0 as i32) & 0x8000u16 as i16) != 0
+            };
+            if !still_down {
+                log::info!("🖱️⬆ 松开→识别流程");
+                if let Some(ref cb) = self.on_release {
+                    cb();
+                }
+                // 恢复光标
+                set_cursor_arrow();
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+
+    fn handle_menu(&mut self, id_str: &str) {
+        match id_str {
+            "__exit__" => {
+                info!("👋 用户退出");
+                std::process::exit(0);
+            }
+            "__record__" => {
+                info!("🎤 托盘手动触发");
+                let _ = self.trigger_tx.send(());
+            }
+            "__copy__" => {
+                tray_copy();
+            }
+            id => {
+                // 麦克风选择: mic_N
+                if let Some(idx_str) = id.strip_prefix("mic_") {
+                    if let Ok(idx) = idx_str.parse::<usize>() {
+                        if idx < self.input_devices.len() {
+                            info!("🎧 切换麦克风: {} (#{})", self.input_devices[idx], idx);
+                            self.active_input = idx;
+                            rebuild_menu_for(self);
+                        }
+                    }
+                }
+                // LLM 选择: llm_N
+                if let Some(idx_str) = id.strip_prefix("llm_") {
+                    if let Ok(idx) = idx_str.parse::<usize>() {
+                        if idx < self.llm_models.len() {
+                            info!("🤖 切换 LLM: {} (#{})", self.llm_models[idx], idx);
+                            self.active_llm = idx;
+                            rebuild_menu_for(self);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-#[cfg(windows)]
-unsafe fn build_tray_menu(menu_data_ptr: *mut TrayMenuData) -> windows::Win32::UI::WindowsAndMessaging::HMENU {
-    use windows::Win32::UI::WindowsAndMessaging::*;
-    use windows::core::PCWSTR;
+fn rebuild_menu_for<F1, F2>(app: &mut TrayApp<F1, F2>)
+where
+    F1: Fn() + Send + 'static,
+    F2: Fn() + Send + 'static,
+{
+    if let Some(ref mut tray) = app.tray {
+        let _ = tray.set_menu(Some(Box::new(build_menu(
+            &app.input_devices,
+            app.active_input,
+            &app.llm_models,
+            app.active_llm,
+        ))));
+        let _ = tray.set_tooltip(Some(format!(
+            "audio-input 🎤 | LLM: {}",
+            app.llm_models.get(app.active_llm).map(|s| s.as_str()).unwrap_or("?")
+        )));
+    }
+}
 
-    use crate::tray::menu_ids::*;
+fn build_menu(
+    input_devices: &[String],
+    active_input: usize,
+    llm_models: &[String],
+    active_llm: usize,
+) -> Menu {
+    let menu = Menu::new();
 
-    let menu = CreatePopupMenu().unwrap_or(HMENU(std::ptr::null_mut()));
-
-    // ── 状态显示 ──
-    let status_text = unsafe {
-        G_LAST_RESULT
-            .as_ref()
+    // ── 状态显示 (disabled) ──
+    let status = unsafe {
+        G_LAST_RESULT.as_ref()
             .and_then(|lr| lr.lock().ok())
-            .map(|r| {
-                if r.is_empty() {
-                    "📊 暂无识别结果".to_string()
-                } else {
-                    let short: String = r.chars().take(40).collect();
-                    format!("📊 最后结果: {}", short)
-                }
+            .map(|r| if r.is_empty() {
+                "📊 暂无结果".to_string()
+            } else {
+                let short: String = r.chars().take(30).collect();
+                format!("📊 {}", short)
             })
-            .unwrap_or_else(|| "📊 暂无识别结果".to_string())
+            .unwrap_or_else(|| "📊 暂无结果".to_string())
     };
-    let status_wide: Vec<u16> = status_text.encode_utf16().chain(std::iter::once(0)).collect();
-    let _ = AppendMenuW(menu, MF_STRING | MF_GRAYED, ID_STATUS, PCWSTR::from_raw(status_wide.as_ptr()));
+    menu.append(&MenuItem::with_id(
+        MenuId::new("status".to_string()), status, false, None,
+    )).ok();
 
-    // ── 分隔符 ──
-    let sep1: Vec<u16> = "────────────────\0".encode_utf16().collect();
-    let _ = AppendMenuW(menu, MF_SEPARATOR, ID_SEP1, PCWSTR::from_raw(sep1.as_ptr()));
+    menu.append(&PredefinedMenuItem::separator()).ok();
 
     // ── 手动录音 ──
-    let rec_text: Vec<u16> = "🎤 开始录音 (双击托盘也可触发)\0".encode_utf16().collect();
-    let _ = AppendMenuW(menu, MF_STRING, ID_RECORD, PCWSTR::from_raw(rec_text.as_ptr()));
+    menu.append(&MenuItem::with_id(
+        MenuId::new("__record__".to_string()), "🎤 开始录音", true, None,
+    )).ok();
 
-    // ── 分隔符 ──
-    let sep2: Vec<u16> = "────────────────\0".encode_utf16().collect();
-    let _ = AppendMenuW(menu, MF_SEPARATOR, ID_SEP2, PCWSTR::from_raw(sep2.as_ptr()));
+    menu.append(&PredefinedMenuItem::separator()).ok();
 
     // ── 麦克风子菜单 ──
-    if !menu_data_ptr.is_null() {
-        let data = &*menu_data_ptr;
-        let mic_menu = CreatePopupMenu().unwrap_or(HMENU(std::ptr::null_mut()));
-        for (i, dev) in data.input_devices.iter().enumerate() {
-            let label = if i == data.active_input {
-                format!("✓ {}", dev)
-            } else {
-                format!("  {}", dev)
-            };
-            let label_wide: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
-            let _ = AppendMenuW(mic_menu, MF_STRING, ID_MIC_BASE + i, PCWSTR::from_raw(label_wide.as_ptr()));
-        }
-        let mic_text: Vec<u16> = "🎧 切换麦克风\0".encode_utf16().collect();
-        let _ = AppendMenuW(menu, MF_POPUP, mic_menu.0 as usize, PCWSTR::from_raw(mic_text.as_ptr()));
-
-        // ── LLM 模型子菜单 ──
-        let llm_menu = CreatePopupMenu().unwrap_or(HMENU(std::ptr::null_mut()));
-        for (i, model) in data.llm_models.iter().enumerate() {
-            let label = if i == data.active_llm {
-                format!("✓ {}", model)
-            } else {
-                format!("  {}", model)
-            };
-            let label_wide: Vec<u16> = label.encode_utf16().chain(std::iter::once(0)).collect();
-            let _ = AppendMenuW(llm_menu, MF_STRING, ID_LLM_BASE + i, PCWSTR::from_raw(label_wide.as_ptr()));
-        }
-        let llm_text: Vec<u16> = "🤖 LLM 模型\0".encode_utf16().collect();
-        let _ = AppendMenuW(menu, MF_POPUP, llm_menu.0 as usize, PCWSTR::from_raw(llm_text.as_ptr()));
+    let mic_sub = tray_icon::menu::Submenu::new("🎧 切换麦克风", true);
+    for (i, dev) in input_devices.iter().enumerate() {
+        let label = if i == active_input {
+            format!("✓ {}", dev)
+        } else {
+            format!("  {}", dev)
+        };
+        mic_sub.append(&MenuItem::with_id(
+            MenuId::new(format!("mic_{}", i)), label, true, None,
+        )).ok();
     }
+    menu.append(&mic_sub).ok();
 
-    // ── 分隔符 ──
-    let sep3: Vec<u16> = "────────────────\0".encode_utf16().collect();
-    let _ = AppendMenuW(menu, MF_SEPARATOR, ID_SEP3, PCWSTR::from_raw(sep3.as_ptr()));
+    // ── LLM 模型子菜单 ──
+    let llm_sub = tray_icon::menu::Submenu::new("🤖 LLM 模型", true);
+    for (i, model) in llm_models.iter().enumerate() {
+        let label = if i == active_llm {
+            format!("✓ {}", model)
+        } else {
+            format!("  {}", model)
+        };
+        llm_sub.append(&MenuItem::with_id(
+            MenuId::new(format!("llm_{}", i)), label, true, None,
+        )).ok();
+    }
+    menu.append(&llm_sub).ok();
+
+    menu.append(&PredefinedMenuItem::separator()).ok();
 
     // ── 拷贝 + 退出 ──
-    let copy_text: Vec<u16> = "📋 拷贝最后结果\0".encode_utf16().collect();
-    let _ = AppendMenuW(menu, MF_STRING, ID_COPY, PCWSTR::from_raw(copy_text.as_ptr()));
-    let exit_text: Vec<u16> = "❌ 退出\0".encode_utf16().collect();
-    let _ = AppendMenuW(menu, MF_STRING, ID_EXIT, PCWSTR::from_raw(exit_text.as_ptr()));
+    menu.append(&MenuItem::with_id(
+        MenuId::new("__copy__".to_string()), "📋 拷贝最后结果", true, None,
+    )).ok();
+    menu.append(&MenuItem::with_id(
+        MenuId::new("__exit__".to_string()), "❌ 退出", true, None,
+    )).ok();
 
     menu
 }
 
-#[cfg(windows)]
-unsafe fn handle_menu_action(hwnd: windows::Win32::Foundation::HWND, id: usize) {
-    use crate::tray::menu_ids::*;
-    use windows::Win32::UI::WindowsAndMessaging::*;
+fn load_icon() -> Icon {
+    // 尝试从文件加载
+    for p in &["assets/tray_icon.ico", "tray_icon.ico"] {
+        let path = std::path::Path::new(p);
+        if path.exists() {
+            if let Ok(icon) = Icon::from_path(path, None) {
+                return icon;
+            }
+        }
+    }
+    // 程序化生成: 黑底白色小a
+    generate_a_icon()
+}
 
-    match id {
-        ID_RECORD => {
-            tray_trigger(hwnd);
+/// 生成黑底白色小a图标 (32×32 RGBA)
+fn generate_a_icon() -> Icon {
+    let w = 32u32;
+    let h = 32u32;
+    let mut rgba = vec![0u8; (w * h * 4) as usize];
+    let cx = 16.0;
+    let cy = 16.0;
+    let r = 14.0;
+
+    for y in 0..h {
+        for x in 0..w {
+            let idx = ((y * w + x) * 4) as usize;
+            let dx = x as f64 - cx;
+            let dy = y as f64 - cy;
+            if (dx * dx + dy * dy) <= r * r {
+                // 黑色背景
+                rgba[idx] = 30;
+                rgba[idx + 1] = 30;
+                rgba[idx + 2] = 30;
+                rgba[idx + 3] = 255;
+            } else {
+                rgba[idx + 3] = 0; // 透明
+            }
         }
-        ID_COPY => {
-            tray_copy();
+    }
+
+    // 简单画白色小写 a (14x10 居中)
+    //   ##
+    //  #  #
+    // #    #
+    // ######
+    // #    #
+    // #    #
+    let a_pixels: &[(i32, i32)] = &[
+        // a 的简单位图
+        (12, 10), (13, 10),
+        (11, 11), (14, 11),
+        (10, 12), (15, 12),
+        (10, 13), (11, 13), (12, 13), (13, 13), (14, 13), (15, 13),
+        (10, 14), (15, 14),
+        (10, 15), (15, 15),
+    ];
+
+    for &(ax, ay) in a_pixels {
+        let px = ax as u32;
+        let py = ay as u32;
+        if px < w && py < h {
+            let idx = ((py * w + px) * 4) as usize;
+            rgba[idx] = 255;     // R
+            rgba[idx + 1] = 255; // G
+            rgba[idx + 2] = 255; // B
+            rgba[idx + 3] = 255; // A
         }
-        ID_EXIT => {
-            PostQuitMessage(0);
-        }
-        _ => {
-            // 检查麦克风选择
-            let data_ptr = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut TrayMenuData;
-            if !data_ptr.is_null() {
-                let data = &*data_ptr;
-                if id >= ID_MIC_BASE && id < ID_MIC_BASE + data.input_devices.len() {
-                    let idx = id - ID_MIC_BASE;
-                    info!("🎧 切换麦克风: {} (#{})", data.input_devices[idx], idx);
-                    // TODO: 实际切换需要通知 main.rs 重建设备
-                } else if id >= ID_LLM_BASE && id < ID_LLM_BASE + data.llm_models.len() {
-                    let idx = id - ID_LLM_BASE;
-                    info!("🤖 切换 LLM: {} (#{})", data.llm_models[idx], idx);
-                    // TODO: 实际切换需要通知 main.rs 重建 corrector
-                }
+    }
+
+    Icon::from_rgba(rgba, w, h).expect("RGBA icon 生成失败")
+}
+
+fn tray_copy() {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::System::DataExchange::*;
+        use windows::Win32::System::Memory::*;
+        use windows::Win32::Foundation::*;
+
+        let text = G_LAST_RESULT
+            .as_ref()
+            .and_then(|lr| lr.lock().ok())
+            .map(|r| r.clone())
+            .unwrap_or_else(|| "(空)".to_string());
+        let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
+        let size = wide.len() * 2;
+        if let Ok(hmem) = GlobalAlloc(GMEM_MOVEABLE, size) {
+            let ptr = GlobalLock(hmem);
+            if !ptr.is_null() {
+                std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr as *mut u16, wide.len());
+                let _ = GlobalUnlock(hmem);
+                let _ = OpenClipboard(None);
+                let _ = EmptyClipboard();
+                let _ = SetClipboardData(13u32, HANDLE(hmem.0));
+                let _ = CloseClipboard();
             }
         }
     }
 }
 
-unsafe fn tray_trigger(_hwnd: windows::Win32::Foundation::HWND) {
-    info!("🎤 托盘触发录音");
-    if let Some(ref tx) = G_TRIGGER_TX {
-        let _ = tx.send(());
+/// 设置光标为等待 (沙漏)
+fn set_cursor_wait() {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        use windows::Win32::Foundation::HANDLE;
+        if let Ok(wait) = LoadCursorW(None, IDC_WAIT) {
+            if let Ok(copy) = CopyImage(HANDLE(wait.0), IMAGE_CURSOR, 0, 0, IMAGE_FLAGS(0)) {
+                let _ = SetSystemCursor(HCURSOR(copy.0), OCR_NORMAL);
+            }
+        }
+        let _ = SystemParametersInfoW(SPI_SETCURSORS, 0, None, SPIF_SENDCHANGE);
     }
 }
 
-unsafe fn tray_copy() {
-    use windows::Win32::System::DataExchange::*;
-    use windows::Win32::System::Memory::*;
-    use windows::Win32::Foundation::*;
-
-    let text = G_LAST_RESULT
-        .as_ref()
-        .and_then(|lr| lr.lock().ok())
-        .map(|r| r.clone())
-        .unwrap_or_else(|| "(空)".to_string());
-    let wide: Vec<u16> = text.encode_utf16().chain(std::iter::once(0)).collect();
-    let size = wide.len() * 2;
-    if let Ok(hmem) = GlobalAlloc(GMEM_MOVEABLE, size) {
-        let ptr = GlobalLock(hmem);
-        if !ptr.is_null() {
-            std::ptr::copy_nonoverlapping(wide.as_ptr(), ptr as *mut u16, wide.len());
-            GlobalUnlock(hmem);
-            OpenClipboard(None).ok();
-            EmptyClipboard().ok();
-            SetClipboardData(13u32, HANDLE(hmem.0)).ok();
-            CloseClipboard();
+/// 恢复光标为箭头
+fn set_cursor_arrow() {
+    #[cfg(windows)]
+    unsafe {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        use windows::Win32::Foundation::HANDLE;
+        if let Ok(arrow) = LoadCursorW(None, IDC_ARROW) {
+            if let Ok(copy) = CopyImage(HANDLE(arrow.0), IMAGE_CURSOR, 0, 0, IMAGE_FLAGS(0)) {
+                let _ = SetSystemCursor(HCURSOR(copy.0), OCR_NORMAL);
+            }
         }
+        let _ = SystemParametersInfoW(SPI_SETCURSORS, 0, None, SPIF_SENDCHANGE);
     }
 }
