@@ -45,20 +45,11 @@ jobs:
         Copy-Item models.yaml $pkg/
         Copy-Item settings.example.json $pkg/
         Copy-Item assets/tray_icon.ico $pkg/
-        # Sherpa-ONNX CLI binaries
-        New-Item -ItemType Directory -Force -Path $pkg/sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin | Out-Null
-        Copy-Item sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/sherpa-onnx-offline.exe $pkg/sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/
+        New-Item -ItemType Directory -Force -Path "$pkg/sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin" | Out-Null
+        Copy-Item "sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/sherpa-onnx-offline.exe" "$pkg/sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/"
         Copy-Item sherpa_dll/sherpa-onnx-asr-x64.exe $pkg/sherpa_dll/
-        # INSTALL.txt
-        Set-Content -Path $pkg/INSTALL.txt -Encoding utf8 @'
-Model download:
-  https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2
-  Extract to models/sense-voice-int8/ (beside audio-input.exe)
-
-LLM config:
-  Copy settings.example.json to settings.json and edit your API endpoint.
-'@
-        Compress-Archive -Path $pkg/* -DestinationPath audio-input-windows-x64.zip
+        Set-Content -Path "$pkg/INSTALL.txt" -Encoding utf8 -Value "Model download:`n  https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2`n  Extract to models/sense-voice-int8/ (beside audio-input.exe)`n`nLLM config:`n  Copy settings.example.json to settings.json and edit your API endpoint."
+        Compress-Archive -Path "$pkg/*" -DestinationPath audio-input-windows-x64.zip
         Write-Host "Created audio-input-windows-x64.zip"
 
     - uses: actions/upload-artifact@v4
