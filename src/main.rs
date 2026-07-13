@@ -29,6 +29,22 @@ fn restore_system_cursors() {
     }
 }
 
+/// 检查 ASR/LLM 输出是否为有效指令文本
+fn is_valid_text(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() { return false; }
+    if t == "." || t == "。" { return false; }
+    if t == "<|nospeech|>" { return false; }
+    // 纯标点符号
+    if t.chars().all(|c| c.is_ascii_punctuation()
+        || c == '。' || c == '，' || c == '、' || c == ' '
+        || c == '\t' || c == '\n' || c == '\r')
+    {
+        return false;
+    }
+    true
+}
+
 fn main() {
     restore_system_cursors(); // 启动时先恢复系统光标
 
@@ -86,7 +102,12 @@ fn main() {
             tray::set_tooltip("📝 语音识别中...");
             std::thread::sleep(std::time::Duration::from_millis(200));
             let data = audio_buf.lock().unwrap().clone();
-            if data.is_empty() { info!("No audio"); tray::set_tooltip("audio-input 🎤"); restore_system_cursors(); return; }
+            if data.is_empty() {
+                info!("No audio");
+                tray::set_tooltip("audio-input 🎤");
+                restore_system_cursors();
+                return;
+            }
             let dur = data.len() as f64 / sr as f64;
             info!("📊 {:.1}s", dur);
 
@@ -94,15 +115,39 @@ fn main() {
                 Some(e) => e.recognize(&data, sr).unwrap_or_else(|e| { error!("ASR: {}", e); format!("ERR") }),
                 None => "N/A".to_string(),
             };
-            info!("ASR {} chars", raw.len());
+            info!("ASR: {} chars", raw.len());
+
+            // ASR 返回无效内容直接跳过
+            if !is_valid_text(&raw) {
+                info!("ASR 无有效语音内容, 跳过修正: '{}'", raw.chars().take(80).collect::<String>());
+                tray::set_last_result("");
+                audio_buf.lock().unwrap().clear();
+                tray::set_tooltip("audio-input 🎤");
+                restore_system_cursors();
+                info!("✅ Ready");
+                return;
+            }
+
             tray::set_tooltip("🤖 LLM 修正中...");
             let text = match corrector.lock().unwrap().correct(&raw) {
-                Ok(t) => { info!("LLM: {}", t); t }
+                Ok(t) => {
+                    if is_valid_text(&t) {
+                        info!("LLM: {}", t);
+                        t
+                    } else {
+                        info!("LLM 返回无效内容, 使用 ASR 原文: '{}'", t.chars().take(80).collect::<String>());
+                        raw.clone()
+                    }
+                }
                 Err(e) => { warn!("LLM: {}", e); raw }
             };
+
             tray::set_last_result(&text);
-            if !text.is_empty() && !text.starts_with('[') {
+            if is_valid_text(&text) {
                 let _ = paster.paste(&text);
+                info!("📋✅ 已粘贴");
+            } else {
+                info!("⏭️ 无有效指令, 不粘贴");
             }
             audio_buf.lock().unwrap().clear();
             tray::set_tooltip("audio-input 🎤");
@@ -116,6 +161,8 @@ fn main() {
         move || {
             is_rec.store(false, Ordering::SeqCst);
             info!("🚫 拖动取消, 不执行识别");
+            // 等待录音线程退出
+            std::thread::sleep(std::time::Duration::from_millis(100));
             audio_buf.lock().unwrap().clear();
             tray::set_tooltip("audio-input 🎤");
             restore_system_cursors();
