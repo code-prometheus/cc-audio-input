@@ -18,16 +18,38 @@ audio-input 是一个 Windows 语音输入工具：按住鼠标左键 1.5 秒触
 
 - **主线程**: `trigger::listen()` 鼠标/托盘触发轮询循环
 - **录音线程**: 每次触发时 spawn，cpal 录音到缓冲区
-- **托盘线程**: Win32 原生 API (Shell_NotifyIconW + 隐藏窗口 + GetMessageW)
+- **托盘线程**: tray-icon + winit EventLoop (with_any_thread=true)
 - **ASR 调用**: 阻塞式，在 on_release 回调中同步执行
 - **LLM 调用**: 阻塞式 HTTP (reqwest blocking client)，15 秒超时
 
 ### 关键设计决策
 
-1. **托盘不是 tray-icon+winit**: 因为主线程被 trigger 循环占用，无法跑 winit EventLoop
-2. **托盘用 Win32 原生 API**: `Shell_NotifyIconW` + 隐藏窗口 + 手动消息循环
-3. **ASR 用子进程 CLI**: 避免 sherpa-onnx FFI 结构体对齐问题
-4. **LLM 用 reqwest blocking**: 简单直接，无需 async runtime
+1. **托盘用 tray-icon + winit 子线程**: 因为主线程被 trigger 循环占用，用 `with_any_thread(true)` 在子线程跑 EventLoop
+2. **ASR 用子进程 CLI**: 避免 sherpa-onnx FFI 结构体对齐问题
+3. **LLM 用 reqwest blocking**: 简单直接，无需 async runtime
+4. **拖动检测**: `GetCursorPos` 记录按下时位置，hold 期间偏移 > 8px 视为拖动，取消录音
+5. **Tooltip 跨线程通信**: `tray::set_tooltip()` 通过 `mpsc::channel` 发送到托盘线程，`about_to_wait()` 中 poll 更新
+
+### 触发流程（v0.5.1+）
+
+```
+鼠标左键按下 → 记录位置 + 计时
+  ├─ 短按 (< hold_ms) → 忽略
+  ├─ 拖动 (> 8px) → 取消 (返回 false)
+  └─ 长按 (≥ hold_ms) → on_trigger() → 录音
+       ├─ 松开鼠标 → on_release() → ASR → LLM → paste
+       └─ 拖动鼠标 → on_cancel() → 恢复状态, 不执行 ASR/LLM
+```
+
+### Tooltip 状态机
+
+```
+"audio-input 🎤" (空闲)
+  → "🔴 录音中..." (on_trigger)
+  → "📝 语音识别中..." (on_release 开始)
+  → "🤖 LLM 修正中..." (ASR 完成后)
+  → "audio-input 🎤" (LLM 完成后)
+```
 
 ## 构建
 
@@ -69,10 +91,13 @@ cargo check
 
 ## 添加新功能注意事项
 
-- 修改 `tray.rs` 时：菜单 ID 必须在 `menu_ids` 模块中定义，WM_COMMAND 处理在 `handle_menu_action` 中
-- 修改 `hotwords.yaml` 后：无需重新编译，exe 启动时加载
-- 修改 `models.yaml` 后：需要重启程序才能生效
-- 音近词修正规则：key 用**全小写**，`quick_correct` 做大小写不敏感匹配
+- **修改 `trigger.rs` 时**: `listen()` 签名有 5 个参数 (hold_ms, trigger_rx, on_trigger, on_release, on_cancel)，三个回调都需要 `Send + 'static`
+- **修改 `tray.rs` 时**: 菜单 ID 统一用 `__xxx__` 格式（如 `__record__`, `__exit__`）；`menu_ids` 模块已移除，直接用字符串
+- **修改 `hotwords.yaml` 后**: 无需重新编译，exe 启动时加载
+- **修改 `models.yaml` 后**: 需要重启程序才能生效
+- **音近词修正规则**: key 用**全小写**，`quick_correct` 做大小写不敏感匹配
+- **Tooltip 调用 `tray::set_tooltip()`**: 在 `G_TOOLTIP_TX` 初始化后（`run_tray_in_thread()` 调用后）才可用
+- **`G_LAST_RESULT` 写入**: 通过 `tray::set_last_result(&text)` 写入，托盘菜单 status 项自动读取
 
 ## 代理设置
 

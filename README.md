@@ -19,6 +19,12 @@
 | ⑦ Ctrl+V 粘贴 | 修正文本自动粘贴到当前窗口 |
 | ⑧ 系统托盘 | 显示最后结果，右键菜单操作 |
 
+### 智能交互
+
+- **拖动检测**：按住鼠标后如有拖动操作（>8px），自动取消录音，不会误触发
+- **托盘 tooltip**：鼠标悬停托盘图标时实时显示当前状态（录音中/语音识别中/LLM 修正中）
+- **等待光标**：录音时系统光标变为沙漏，完成后自动恢复
+
 ### 托盘菜单
 
 右键系统托盘图标：
@@ -36,10 +42,12 @@
 ### 1. 解压模型
 
 ```bash
-# 将 sense-voice-model.tar.bz2 解压到 models/ 目录
+# 将 sherpa-onnx-sense-voice-...tar.bz2 解压到 models/ 目录
 tar xf sense-voice-model.tar.bz2 -C models/
 # 模型目录: models/sense-voice-int8/ (228MB)
 ```
+
+下载地址：[sherpa-onnx-sense-voice-int8](https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2)
 
 ### 2. 配置 LLM 模型
 
@@ -60,7 +68,7 @@ models:
 
 ### 3. 确保 sherpa-onnx CLI 可访问
 
-`sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/sherpa-onnx-offline.exe` 必须在项目中。
+`sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/sherpa-onnx-offline.exe` 必须在 exe 同目录。
 
 ### 4. 运行
 
@@ -112,8 +120,8 @@ python test_asr_virtual.py
 推送 tag 会触发 GitHub Actions 自动编译打包发布：
 
 ```bash
-git tag v0.4.0 -m "v0.4.0: 描述"
-git push origin v0.4.0
+git tag v0.5.1 -m "v0.5.1: 拖动检测 + tooltip + 文档更新"
+git push origin v0.5.1
 ```
 
 ---
@@ -133,22 +141,45 @@ git push origin v0.4.0
 ```
 audio-input/
 ├── src/
-│   ├── main.rs             # 主入口，管道编排
-│   ├── config.rs           # 配置加载（models.yaml + 环境变量）
-│   ├── trigger.rs          # 鼠标左键长按 + 托盘手动触发
-│   ├── recorder.rs         # cpal WASAPI 录音（16kHz mono f32）
-│   ├── asr_engine.rs       # Sherpa-ONNX CLI 子进程调用
-│   ├── hotwords.rs         # CLI 热词管理 + 本地音近词修正
-│   ├── corrector.rs        # LLM 修正器（OpenAI 兼容 API）
-│   ├── clipboard_paste.rs  # Win32 剪贴板 + Ctrl+V 模拟
-│   ├── device_selector.rs  # 麦克风设备选择
-│   └── tray.rs             # 系统托盘 + 右键菜单（Win32 API）
-├── hotwords.yaml           # 热词配置
-├── models.yaml             # LLM 模型配置
-├── assets/                 # 托盘图标等资源pa_dll/             # Sherpa-ONNX CLI 可执行文件
-├── models/                 # SenseVoice 模型文件（不随 git 分发）
+│   ├── main.rs            # 主入口，管道编排
+│   ├── config.rs          # 配置加载（models.yaml + 环境变量）
+│   ├── trigger.rs         # 鼠标左键长按 + 拖动检测 + 托盘手动触发
+│   ├── recorder.rs        # cpal WASAPI 录音（16kHz mono f32）
+│   ├── asr_engine.rs      # Sherpa-ONNX CLI 子进程调用
+│   ├── hotwords.rs        # CLI 热词管理 + 本地音近词修正
+│   ├── corrector.rs       # LLM 修正器（OpenAI 兼容 API）
+│   ├── clipboard_paste.rs # Win32 剪贴板 + Ctrl+V 模拟
+│   ├── device_selector.rs # 麦克风设备选择
+│   └── tray.rs            # 系统托盘 + tooltip + 右键菜单
+├── hotwords.yaml          # 热词配置
+├── models.yaml            # LLM 模型配置
+├── assets/                # 托盘图标等资源
+├── sherpa_dll/            # Sherpa-ONNX CLI 可执行文件
+├── models/                # SenseVoice 模型文件（不随 git 分发）
 └── Cargo.toml
 ```
+
+---
+
+## 更新日志
+
+### v0.5.1
+- 拖动检测：按住左键后拖动鼠标自动取消录音
+- 托盘 tooltip：实时显示录音/识别/修正状态
+- 托盘菜单显示最后识别结果
+- 统一 CI/CD 工作流
+
+### v0.5.0
+- tray-icon+winit 架构重写
+- 鼠标不动检测、等待光标
+- 黑底 a 图标
+- LLM 修正优化
+
+### v0.4.0
+- 托盘菜单增强
+- LLM 多模型支持
+- 热词优化
+- CI/CD 配置
 
 ---
 
