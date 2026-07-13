@@ -1,4 +1,4 @@
-//! 音频录制 — cpal WASAPI, 精确 16kHz mono f32
+//! 音频录制 — cpal WASAPI, 原生配置 + 智能降采样到 16kHz mono
 
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -31,69 +31,49 @@ pub fn record_blocking(
     let dev_name = device.name()?;
     info!("🎤 设备: {}", dev_name);
 
-    // ★ 构造精确的配置: 16kHz, mono, f32
-    let target_config = cpal::StreamConfig {
-        channels: 1,
-        sample_rate: cpal::SampleRate(16000),
-        buffer_size: cpal::BufferSize::Default,
-    };
-
-    // 检查设备是否支持此配置，如果不支持则用默认配置（由 cpal 自动转换）
-    let supported = device.supported_input_configs()?
-        .find(|c| c.channels() >= 1 && c.max_sample_rate() >= cpal::SampleRate(16000) && c.min_sample_rate() <= cpal::SampleRate(16000));
-
-    let actual_config = match supported {
-        Some(_sup_cfg) => {
-            info!(" 设备支持 16kHz, 使用精确配置");
-            target_config.clone()
-        }
-        None => {
-            // 设备不支持 16kHz — 让 cpal 用默认配置然后自动转换
-            let def = device.default_input_config()?;
-            info!(" 设备默认 {}Hz {}ch, cpal将自动转换为16kHz mono",
-                def.sample_rate().0, def.channels());
-            def.into()
-        }
-    };
+    // ★ 用设备原生配置采集, 然后在回调中智能降采样到 16kHz mono
+    let def = device.default_input_config()?;
+    let in_sr = def.sample_rate().0;
+    let in_ch = def.channels() as usize;
+    info!(" 设备默认 {}Hz {}ch, cpal将自动转换为16kHz mono", in_sr, in_ch);
 
     let buf = buffer.clone();
     let err_flag = Arc::new(AtomicBool::new(false));
     let err_msg: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let is_rec = is_recording.clone();
-    let target_sr = target_config.sample_rate.0;
 
     let stream = {
         let buf = buf.clone();
-        let err_flag = err_flag.clone();
-        let err_msg = err_msg.clone();
+        let err_flag_c = err_flag.clone();
+        let err_msg_c = err_msg.clone();
         device.build_input_stream(
-            &actual_config,
+            &def.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
-                if is_rec.load(Ordering::SeqCst) {
-                    // ★ 重采样: 如果实际采样率不是 16kHz，做简单线性插值
-                    let actual_sr = target_sr; // cpal 会用配置中的采样率
-                    if actual_sr == 16000 {
-                        buf.lock().unwrap().extend_from_slice(data);
-                    } else {
-                        // 降采样: 48000 → 16000 (取每3个样本的第1个)
-                        let ratio = actual_sr / 16000;
-                        for chunk in data.chunks(ratio as usize) {
-                            buf.lock().unwrap().push(chunk[0]);
-                        }
-                    }
+                if !is_rec.load(Ordering::SeqCst) { return; }
+                let mut out = buf.lock().unwrap();
+                // 智能降采样: 原生采样率 → 16000, 只取第1声道
+                if in_sr == 16000 && in_ch == 1 {
+                    out.extend_from_slice(data);
+                    return;
+                }
+                // data 是 interleaved: [ch0,ch1,ch0,ch1,...]
+                // ratio = 每帧需跳过的比例, 比如 48000/16000 = 3
+                let ratio = in_sr as usize / 16000;
+                for frame in data.chunks(in_ch).step_by(ratio) {
+                    out.push(frame[0]); // 只取第1声道
                 }
             },
             move |e| {
                 error!("音频流错误: {}", e);
-                err_flag.store(true, Ordering::SeqCst);
-                *err_msg.lock().unwrap() = Some(e.to_string());
+                err_flag_c.store(true, Ordering::SeqCst);
+                *err_msg_c.lock().unwrap() = Some(e.to_string());
             },
             None,
         )?
     };
 
     stream.play()?;
-    info!("🔴 录音中 (16kHz mono f32)");
+    info!("🔴 录音中 ({}Hz {}ch → 16kHz mono)", in_sr, in_ch);
 
     while is_recording.load(Ordering::SeqCst) {
         if err_flag.load(Ordering::SeqCst) {
