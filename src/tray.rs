@@ -1,4 +1,4 @@
-//! 系统托盘 — tray-icon + winit, 子线程 + tooltip channel
+//! 系统托盘 — tray-icon + winit, 子线程 + tooltip channel + 切换通知
 
 use std::sync::{Arc, Mutex, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,6 +13,8 @@ use winit::window::WindowId;
 
 static mut G_LAST_RESULT: Option<Arc<Mutex<String>>> = None;
 static mut G_TOOLTIP_TX: Option<mpsc::Sender<String>> = None;
+/// 托盘切换事件: (mic_index, llm_index) — None 表示未切换该项
+pub static mut G_SWITCH_TX: Option<mpsc::Sender<(Option<usize>, Option<usize>)>> = None;
 
 pub fn set_tooltip(text: &str) {
     log::info!("🔔 tooltip: {}", text);
@@ -28,12 +30,13 @@ pub fn set_last_result(text: &str) {
 }
 
 pub fn run_tray_in_thread(
-    tooltip: String, _trigger_tx: mpsc::Sender<()>,
+    tooltip: String,
     input_devices: Vec<String>, active_input: usize,
     llm_models: Vec<String>, active_llm: usize,
+    switch_tx: mpsc::Sender<(Option<usize>, Option<usize>)>,
 ) {
     let (tooltip_tx, tooltip_rx) = mpsc::channel::<String>();
-    unsafe { G_TOOLTIP_TX = Some(tooltip_tx); G_LAST_RESULT = Some(Arc::new(Mutex::new(String::new()))); }
+    unsafe { G_TOOLTIP_TX = Some(tooltip_tx); G_LAST_RESULT = Some(Arc::new(Mutex::new(String::new()))); G_SWITCH_TX = Some(switch_tx); }
 
     let menu_rx = MenuEvent::receiver().clone();
     let running = Arc::new(AtomicBool::new(true));
@@ -76,12 +79,22 @@ impl TrayApp {
             id => {
                 if let Some(s) = id.strip_prefix("mic_") {
                     if let Ok(i) = s.parse::<usize>() {
-                        if i < self.input_devices.len() { self.active_input = i; rebuild_menu(self); }
+                        if i < self.input_devices.len() {
+                            self.active_input = i;
+                            rebuild_menu(self);
+                            // 通知主线程切换麦克风
+                            unsafe { if let Some(ref tx) = G_SWITCH_TX { let _ = tx.send((Some(i), None)); } }
+                        }
                     }
                 }
                 if let Some(s) = id.strip_prefix("llm_") {
                     if let Ok(i) = s.parse::<usize>() {
-                        if i < self.llm_models.len() { self.active_llm = i; rebuild_menu(self); }
+                        if i < self.llm_models.len() {
+                            self.active_llm = i;
+                            rebuild_menu(self);
+                            // 通知主线程切换 LLM 模型
+                            unsafe { if let Some(ref tx) = G_SWITCH_TX { let _ = tx.send((None, Some(i))); } }
+                        }
                     }
                 }
             }
