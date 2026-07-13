@@ -28,10 +28,8 @@
 ### 托盘菜单
 
 右键系统托盘图标：
-- 📊 显示最后识别结果
-- 🎤 手动开始录音（或双击托盘图标）
-- 🎧 切换麦克风设备
-- 🤖 切换 LLM 模型
+- 🎧 切换麦克风设备（即时生效）
+- 🤖 切换 LLM 模型（即时生效）
 - 📋 拷贝最后结果
 - ❌ 退出
 
@@ -68,7 +66,7 @@ models:
 
 ### 3. 确保 sherpa-onnx CLI 可访问
 
-`sherpa_dll/sherpa-onnx-v1.13.3-win-x64-shared-MD-Release/bin/sherpa-onnx-offline.exe` 必须在 exe 同目录。
+`sherpa-onnx-offline.exe` 和 `onnxruntime.dll` 在 exe 同目录（release 包已自带）。
 
 ### 4. 运行
 
@@ -166,8 +164,12 @@ audio-input/
 ### v0.5.1
 - 拖动检测：按住左键后拖动鼠标自动取消录音
 - 托盘 tooltip：实时显示录音/识别/修正状态
-- 托盘菜单显示最后识别结果
-- 统一 CI/CD 工作流
+- 托盘菜单精简：移除无用项，保留切换麦克风/LLM/拷贝/退出
+- 麦克风/LLM 切换即时生效（无需重启）
+- ASR SenseVoice JSON 输出正确解析 text 字段
+- 智能降采样：设备原生配置采集 → 回调降采样到 16kHz mono
+- LLM 无效文本过滤：空文本/纯标点/nospeech 不粘贴
+- 统一 CI/CD 工作流，ZIP 打包结构优化
 
 ### v0.5.0
 - tray-icon+winit 架构重写
