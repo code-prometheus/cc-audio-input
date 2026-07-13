@@ -44,14 +44,14 @@ pub fn record_blocking(
 
     let actual_config = match supported {
         Some(_sup_cfg) => {
-            info!("   设备支持 16kHz, 使用精确配置");
+            info!(" 设备支持 16kHz, 使用精确配置");
             target_config.clone()
         }
         None => {
             // 设备不支持 16kHz — 让 cpal 用默认配置然后自动转换
             let def = device.default_input_config()?;
-            info!("   设备默认 {}Hz {}ch, cpal将自动转换为16kHz mono",
-                  def.sample_rate().0, def.channels());
+            info!(" 设备默认 {}Hz {}ch, cpal将自动转换为16kHz mono",
+                def.sample_rate().0, def.channels());
             def.into()
         }
     };
@@ -108,7 +108,7 @@ pub fn record_blocking(
 
     let samples = buffer.lock().unwrap().len();
     let duration = samples as f64 / 16000.0;
-    info!("⏹️  录音结束: {} 采样点, {:.1}s", samples, duration);
+    info!("⏹️ 录音结束: {} 采样点, {:.1}s", samples, duration);
 
     Ok(())
 }
