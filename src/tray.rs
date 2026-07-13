@@ -12,7 +12,6 @@ use winit::event::WindowEvent;
 use winit::window::WindowId;
 
 static mut G_LAST_RESULT: Option<Arc<Mutex<String>>> = None;
-static mut G_TRIGGER_TX: Option<mpsc::Sender<()>> = None;
 static mut G_TOOLTIP_TX: Option<mpsc::Sender<String>> = None;
 
 pub fn set_tooltip(text: &str) {
@@ -29,12 +28,12 @@ pub fn set_last_result(text: &str) {
 }
 
 pub fn run_tray_in_thread(
-    tooltip: String, trigger_tx: mpsc::Sender<()>,
+    tooltip: String, _trigger_tx: mpsc::Sender<()>,
     input_devices: Vec<String>, active_input: usize,
     llm_models: Vec<String>, active_llm: usize,
 ) {
     let (tooltip_tx, tooltip_rx) = mpsc::channel::<String>();
-    unsafe { G_TRIGGER_TX = Some(trigger_tx); G_TOOLTIP_TX = Some(tooltip_tx); G_LAST_RESULT = Some(Arc::new(Mutex::new(String::new()))); }
+    unsafe { G_TOOLTIP_TX = Some(tooltip_tx); G_LAST_RESULT = Some(Arc::new(Mutex::new(String::new()))); }
 
     let menu_rx = MenuEvent::receiver().clone();
     let running = Arc::new(AtomicBool::new(true));
@@ -73,7 +72,6 @@ impl TrayApp {
     fn handle_menu(&mut self, id_str: &str) {
         match id_str {
             "__exit__" => { info!("👋 退出"); std::process::exit(0); }
-            "__record__" => { unsafe { if let Some(ref tx) = G_TRIGGER_TX { let _ = tx.send(()); } } }
             "__copy__" => tray_copy(),
             id => {
                 if let Some(s) = id.strip_prefix("mic_") {
@@ -99,13 +97,6 @@ fn rebuild_menu(app: &mut TrayApp) {
 
 fn build_menu(devs: &[String], ai: usize, llms: &[String], al: usize) -> Menu {
     let m = Menu::new();
-    let st = unsafe { G_LAST_RESULT.as_ref().and_then(|r| r.lock().ok())
-        .map(|s| if s.is_empty() { "📊 暂无结果".into() } else { format!("📊 {}", s.chars().take(30).collect::<String>()) })
-        .unwrap_or("📊 暂无结果".into()) };
-    m.append(&MenuItem::with_id(MenuId::new("status".to_string()), st, false, None)).ok();
-    m.append(&PredefinedMenuItem::separator()).ok();
-    m.append(&MenuItem::with_id(MenuId::new("__record__".to_string()), "🎤 开始录音", true, None)).ok();
-    m.append(&PredefinedMenuItem::separator()).ok();
     let sm = tray_icon::menu::Submenu::new("🎧 切换麦克风", true);
     for (i, d) in devs.iter().enumerate() {
         sm.append(&MenuItem::with_id(MenuId::new(format!("mic_{}", i)), if i == ai { format!("✓ {}", d) } else { format!("  {}", d) }, true, None)).ok();
