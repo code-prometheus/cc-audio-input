@@ -47,21 +47,6 @@ struct ModelsFile {
 
 impl AppConfig {
     pub fn load() -> Self {
-        // 先尝试 settings.json
-        if let Some(s) = load_settings_json() {
-            return Self {
-                llm: s.llm,
-                hotkey: s.hotkey,
-                audio: AudioConfig {
-                    device_id: env_i32("DEVICE_ID", -1),
-                    sample_rate: 16000,
-                    channels: 1,
-                },
-                asr: s.asr,
-            };
-        }
-
-        // 尝试 models.yaml
         let llm = load_llm_config();
 
         Self {
@@ -82,42 +67,6 @@ impl AppConfig {
             },
         }
     }
-}
-
-struct LoadedSettings {
-    llm: LlmConfig,
-    hotkey: HotkeyConfig,
-    asr: AsrConfig,
-}
-
-fn load_settings_json() -> Option<LoadedSettings> {
-    let candidates = [
-        PathBuf::from("settings.json"),
-        PathBuf::from("assets/settings.json"),
-    ];
-    for path in &candidates {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            // 支持新旧两种格式
-            if let Ok(sf) = serde_json::from_str::<serde_json::Value>(&content) {
-                let llm = LlmConfig {
-                    base_url: sf.get("base_url").and_then(|v| v.as_str()).unwrap_or("http://122.1.231.24:8000/v1").to_string(),
-                    api_key: sf.get("api_key").and_then(|v| v.as_str()).unwrap_or("none").to_string(),
-                    model: sf.get("model").and_then(|v| v.as_str()).unwrap_or("dsv4").to_string(),
-                    verify_ssl: sf.get("verify_ssl").and_then(|v| v.as_bool()).unwrap_or(false),
-                };
-                let hotkey = HotkeyConfig {
-                    hold_ms: sf.get("hold_ms").and_then(|v| v.as_u64()).unwrap_or(1500),
-                };
-                let asr = AsrConfig {
-                    model_dir: PathBuf::from(
-                        sf.get("model_dir").and_then(|v| v.as_str()).unwrap_or("models/sense-voice-int8"),
-                    ),
-                };
-                return Some(LoadedSettings { llm, hotkey, asr });
-            }
-        }
-    }
-    None
 }
 
 fn load_llm_config() -> LlmConfig {
