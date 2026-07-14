@@ -69,9 +69,8 @@ impl Corrector {
     }
 
     pub fn correct(&self, raw_text: &str) -> Result<String> {
-        // 本地快速音近替换
-        let text = self.hotwords.quick_correct(raw_text);
-        let prompt = self.build_correction_prompt(&text);
+        // 不本地替换，把热词表直接发给 LLM 让它自己处理
+        let prompt = self.build_correction_prompt(raw_text);
         info!("修正prompt长度: {} chars, 热词映射: {} 条",
             prompt.len(), self.hotwords.phonetic_count());
 
@@ -80,7 +79,7 @@ impl Corrector {
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: "你是CLI语音修正器。将ASR原始文本修正为正确的编程命令文本。\n规则:\n1. 根据参考表替换音近词(close→claude)\n2. 修正标点大小写\n3. 删除口语填充词(嗯啊那个)\n\n只输出修正后文本。闲聊输出(空)。".to_string(),
+                    content: "你是CLI语音修正器。将ASR原始文本修正为正确的编程命令文本。\n规则:\n1. 根据下面的参考表替换音近词(close→claude)，注意大小写\n2. 修正标点、大小写、空格\n3. 删除口语填充词(嗯啊那个)\n\n只输出修正后文本。闲聊输出(空)。".to_string(),
                 },
                 ChatMessage {
                     role: "user".to_string(),
@@ -118,7 +117,7 @@ impl Corrector {
         let corrected = result.choices
             .first()
             .map(|c| c.message.content.trim().to_string())
-            .unwrap_or(text);
+            .unwrap_or_else(|| raw_text.to_string());
 
         Ok(corrected)
     }
@@ -126,7 +125,7 @@ impl Corrector {
     fn build_correction_prompt(&self, raw_text: &str) -> String {
         let hotwords_context = self.hotwords.get_prompt_context();
         format!(
-            "音近词参考表(ASR误识→正确术语):\n{}\n\n经快速替换后的文本:\n「{}」\n\n请输出修正后文本:",
+            "音近词参考表(ASR误识→正确术语):\n{}\n\nASR原始文本:\n「{}」\n\n请输出修正后文本:",
             hotwords_context,
             raw_text
         )
