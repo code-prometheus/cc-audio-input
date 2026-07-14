@@ -1,10 +1,11 @@
-//! 音频录制 — cpal WASAPI, 原生配置 + 智能降采样到 16kHz mono
-
+//! 音频录制 — cpal WASAPI, 原生配置 + 高质量降采样到 16kHz mono
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use log::{info, error};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+// 引入专业的重采样库
+use rubato::{FastFixedIn, Resampler};
 
 #[derive(Debug, Clone)]
 pub struct RecorderConfig {
@@ -19,8 +20,8 @@ pub fn record_blocking(
     buffer: &Arc<Mutex<Vec<f32>>>,
 ) -> Result<()> {
     buffer.lock().unwrap().clear();
-
     let host = cpal::default_host();
+
     let device = if config.device_id < 0 {
         host.default_input_device().context("未找到麦克风")?
     } else {
@@ -31,36 +32,69 @@ pub fn record_blocking(
     let dev_name = device.name()?;
     info!("🎤 设备: {}", dev_name);
 
-    // ★ 用设备原生配置采集, 然后在回调中智能降采样到 16kHz mono
     let def = device.default_input_config()?;
     let in_sr = def.sample_rate().0;
     let in_ch = def.channels() as usize;
-    info!(" 设备默认 {}Hz {}ch, cpal将自动转换为16kHz mono", in_sr, in_ch);
+    info!(" 设备默认 {}Hz {}ch", in_sr, in_ch);
 
     let buf = buffer.clone();
     let err_flag = Arc::new(AtomicBool::new(false));
     let err_msg: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let is_rec = is_recording.clone();
 
+    // 初始化高质量重采样器 (如果输入不是 16kHz)
+    // 用 Arc<Mutex<>> 包装以便闭包和外部 flush 共享
+    let resampler: Arc<Mutex<Option<FastFixedIn<f32>>>> = if in_sr != 16000 {
+        let ratio = 16000.0 / in_sr as f64;
+        let r = FastFixedIn::<f32>::new(
+            ratio,
+            1.0,
+            rubato::PolynomialDegree::Cubic,
+            10,
+            1024,
+        ).context("初始化 rubato 重采样器失败")?;
+        Arc::new(Mutex::new(Some(r)))
+    } else {
+        Arc::new(Mutex::new(None))
+    };
+
     let stream = {
         let buf = buf.clone();
         let err_flag_c = err_flag.clone();
         let err_msg_c = err_msg.clone();
+        let is_rec = is_rec.clone();
+        let resampler = resampler.clone();
+
         device.build_input_stream(
             &def.into(),
             move |data: &[f32], _: &cpal::InputCallbackInfo| {
                 if !is_rec.load(Ordering::SeqCst) { return; }
+
                 let mut out = buf.lock().unwrap();
-                // 智能降采样: 原生采样率 → 16000, 只取第1声道
-                if in_sr == 16000 && in_ch == 1 {
-                    out.extend_from_slice(data);
-                    return;
+
+                // 1. 多声道安全混合 (Downmix) -> 转为单声道
+                let mut mono_data = Vec::with_capacity(data.len() / in_ch);
+                if in_ch == 1 {
+                    mono_data.extend_from_slice(data);
+                } else {
+                    for frame in data.chunks(in_ch) {
+                        let sum: f32 = frame.iter().sum();
+                        mono_data.push(sum / in_ch as f32);
+                    }
                 }
-                // data 是 interleaved: [ch0,ch1,ch0,ch1,...]
-                // ratio = 每帧需跳过的比例, 比如 48000/16000 = 3
-                let ratio = in_sr as usize / 16000;
-                for frame in data.chunks(in_ch).step_by(ratio) {
-                    out.push(frame[0]); // 只取第1声道
+
+                // 2. 智能降采样 -> 16kHz
+                if in_sr == 16000 {
+                    out.extend_from_slice(&mono_data);
+                } else {
+                    let mut r = resampler.lock().unwrap();
+                    if let Some(ref mut resampler) = *r {
+                        let in_buffers: &[&[f32]] = &[&mono_data];
+                        let mut out_buffers = vec![Vec::new()];
+                        if resampler.process_into_buffer(in_buffers, &mut out_buffers, None).is_ok() {
+                            out.extend_from_slice(&out_buffers[0]);
+                        }
+                    }
                 }
             },
             move |e| {
@@ -73,7 +107,7 @@ pub fn record_blocking(
     };
 
     stream.play()?;
-    info!("🔴 录音中 ({}Hz {}ch → 16kHz mono)", in_sr, in_ch);
+    info!("🔴 录音中 ({}Hz {}ch → 16kHz mono, 使用 rubato 高质量重采样)", in_sr, in_ch);
 
     while is_recording.load(Ordering::SeqCst) {
         if err_flag.load(Ordering::SeqCst) {
@@ -85,6 +119,18 @@ pub fn record_blocking(
     }
 
     drop(stream);
+
+    // 处理重采样器尾部残留数据 (Flush)
+    {
+        let mut r = resampler.lock().unwrap();
+        if let Some(ref mut resampler) = *r {
+            let mut out = buf.lock().unwrap();
+            let empty_in: &[&[f32]] = &[&[]];
+            let mut out_buffers = vec![Vec::new()];
+            let _ = resampler.process_into_buffer(empty_in, &mut out_buffers, None);
+            out.extend_from_slice(&out_buffers[0]);
+        }
+    }
 
     let samples = buffer.lock().unwrap().len();
     let duration = samples as f64 / 16000.0;

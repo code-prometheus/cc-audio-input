@@ -1,4 +1,4 @@
-//! audio-input v0.5
+//! audio-input v0.6
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -46,7 +46,7 @@ fn is_valid_text(text: &str) -> bool {
 fn main() {
     restore_system_cursors();
     init_logging();
-    info!("🚀 audio-input v0.5");
+    info!("🚀 audio-input v0.6");
     let cfg = config::AppConfig::load();
     info!("✅ LLM: {} @ {}", cfg.llm.model, cfg.llm.base_url);
     let hw = hotwords::Hotwords::load(&std::path::PathBuf::from("hotwords.yaml")).expect("hotwords");

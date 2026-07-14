@@ -1,6 +1,6 @@
 [package]
 name = "audio-input"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "Voice + LLM CLI prompt input — hold left mouse 1.5s to trigger ASR + LLM correction + paste"
 
@@ -39,6 +39,7 @@ reqwest = { version = "0.12", features = ["json", "native-tls", "blocking"], def
 
 # Audio capture
 cpal = "0.15"
+rubato = "0.15" # 或者最新的 0.14/0.15 版本
 
 # Tray icon (纯 Rust, 替代原生 Shell_NotifyIconW)
 tray-icon = "0.19"

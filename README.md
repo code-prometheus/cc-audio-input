@@ -118,8 +118,8 @@ python test_asr_virtual.py
 推送 tag 会触发 GitHub Actions 自动编译打包发布：
 
 ```bash
-git tag v0.5.1 -m "v0.5.1: 拖动检测 + tooltip + 文档更新"
-git push origin v0.5.1
+git tag v0.6.0 -m "v0.6.0: rubato 高质量降采样 + 移除 settings.example.json"
+git push origin v0.6.0
 ```
 
 ---
@@ -160,6 +160,11 @@ audio-input/
 ---
 
 ## 更新日志
+
+### v0.6.0
+- 音频质量提升：使用 `rubato` 库进行高质量降采样（抗混叠滤波 + 多声道混合），替代旧版朴素抽值法
+- 移除 `settings.example.json`，统一使用 `models.yaml` 管理 LLM 配置
+- CI 打包流程同步更新
 
 ### v0.5.1
 - 拖动检测：按住左键后拖动鼠标自动取消录音
