@@ -1,4 +1,4 @@
-//! 系统托盘 — tray-icon + winit, 子线程 + tooltip channel + 切换通知
+//! 系统托盘 — tray-icon + winit, 子线程 + tooltip channel + 麦克风切换
 
 use std::sync::{Arc, Mutex, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,8 +13,8 @@ use winit::window::WindowId;
 
 static mut G_LAST_RESULT: Option<Arc<Mutex<String>>> = None;
 static mut G_TOOLTIP_TX: Option<mpsc::Sender<String>> = None;
-/// 托盘切换事件: (mic_index, llm_index) — None 表示未切换该项
-pub static mut G_SWITCH_TX: Option<mpsc::Sender<(Option<usize>, Option<usize>)>> = None;
+/// 托盘切换事件: mic_index (None 表示未切换)
+pub static mut G_SWITCH_TX: Option<mpsc::Sender<Option<usize>>> = None;
 
 pub fn set_tooltip(text: &str) {
     log::info!("🔔 tooltip: {}", text);
@@ -32,8 +32,7 @@ pub fn set_last_result(text: &str) {
 pub fn run_tray_in_thread(
     tooltip: String,
     input_devices: Vec<String>, active_input: usize,
-    llm_models: Vec<String>, active_llm: usize,
-    switch_tx: mpsc::Sender<(Option<usize>, Option<usize>)>,
+    switch_tx: mpsc::Sender<Option<usize>>,
 ) {
     let (tooltip_tx, tooltip_rx) = mpsc::channel::<String>();
     unsafe { G_TOOLTIP_TX = Some(tooltip_tx); G_LAST_RESULT = Some(Arc::new(Mutex::new(String::new()))); G_SWITCH_TX = Some(switch_tx); }
@@ -44,9 +43,9 @@ pub fn run_tray_in_thread(
     std::thread::spawn(move || {
         let Ok(event_loop) = winit::event_loop::EventLoop::builder().with_any_thread(true).build() else { return };
         let tray = TrayIconBuilder::new()
-            .with_menu(Box::new(build_menu(&input_devices, active_input, &llm_models, active_llm)))
+            .with_menu(Box::new(build_menu(&input_devices, active_input)))
             .with_icon(load_icon()).with_tooltip(tooltip).build().ok();
-        let mut app = TrayApp { tray, menu_rx, tooltip_rx, running, input_devices, active_input, llm_models, active_llm };
+        let mut app = TrayApp { tray, menu_rx, tooltip_rx, running, input_devices, active_input };
         let _ = event_loop.run_app(&mut app);
     });
 }
@@ -55,7 +54,6 @@ struct TrayApp {
     tray: Option<TrayIcon>, menu_rx: crossbeam_channel::Receiver<MenuEvent>,
     tooltip_rx: mpsc::Receiver<String>, running: Arc<AtomicBool>,
     input_devices: Vec<String>, active_input: usize,
-    llm_models: Vec<String>, active_llm: usize,
 }
 
 impl ApplicationHandler for TrayApp {
@@ -82,18 +80,7 @@ impl TrayApp {
                         if i < self.input_devices.len() {
                             self.active_input = i;
                             rebuild_menu(self);
-                            // 通知主线程切换麦克风
-                            unsafe { if let Some(ref tx) = G_SWITCH_TX { let _ = tx.send((Some(i), None)); } }
-                        }
-                    }
-                }
-                if let Some(s) = id.strip_prefix("llm_") {
-                    if let Ok(i) = s.parse::<usize>() {
-                        if i < self.llm_models.len() {
-                            self.active_llm = i;
-                            rebuild_menu(self);
-                            // 通知主线程切换 LLM 模型
-                            unsafe { if let Some(ref tx) = G_SWITCH_TX { let _ = tx.send((None, Some(i))); } }
+                            unsafe { if let Some(ref tx) = G_SWITCH_TX { let _ = tx.send(Some(i)); } }
                         }
                     }
                 }
@@ -104,22 +91,17 @@ impl TrayApp {
 
 fn rebuild_menu(app: &mut TrayApp) {
     if let Some(ref mut t) = app.tray {
-        let _ = t.set_menu(Some(Box::new(build_menu(&app.input_devices, app.active_input, &app.llm_models, app.active_llm))));
+        let _ = t.set_menu(Some(Box::new(build_menu(&app.input_devices, app.active_input))));
     }
 }
 
-fn build_menu(devs: &[String], ai: usize, llms: &[String], al: usize) -> Menu {
+fn build_menu(devs: &[String], ai: usize) -> Menu {
     let m = Menu::new();
     let sm = tray_icon::menu::Submenu::new("🎧 切换麦克风", true);
     for (i, d) in devs.iter().enumerate() {
         sm.append(&MenuItem::with_id(MenuId::new(format!("mic_{}", i)), if i == ai { format!("✓ {}", d) } else { format!("  {}", d) }, true, None)).ok();
     }
     m.append(&sm).ok();
-    let sl = tray_icon::menu::Submenu::new("🤖 LLM 模型", true);
-    for (i, l) in llms.iter().enumerate() {
-        sl.append(&MenuItem::with_id(MenuId::new(format!("llm_{}", i)), if i == al { format!("✓ {}", l) } else { format!("  {}", l) }, true, None)).ok();
-    }
-    m.append(&sl).ok();
     m.append(&PredefinedMenuItem::separator()).ok();
     m.append(&MenuItem::with_id(MenuId::new("__copy__".to_string()), "📋 拷贝", true, None)).ok();
     m.append(&MenuItem::with_id(MenuId::new("__exit__".to_string()), "❌ 退出", true, None)).ok();

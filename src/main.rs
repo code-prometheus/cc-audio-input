@@ -1,4 +1,4 @@
-//! audio-input v0.6
+//! audio-input v0.7
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -46,7 +46,7 @@ fn is_valid_text(text: &str) -> bool {
 fn main() {
     restore_system_cursors();
     init_logging();
-    info!("🚀 audio-input v0.6");
+    info!("🚀 audio-input v0.7");
     let cfg = config::AppConfig::load();
     info!("✅ LLM: {} @ {}", cfg.llm.model, cfg.llm.base_url);
     let hw = hotwords::Hotwords::load(&std::path::PathBuf::from("hotwords.yaml")).expect("hotwords");
@@ -79,18 +79,15 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let llm_entries: Vec<config::LlmModelEntry> = cfg.llm_models.clone();
     let corrector: Arc<Mutex<corrector::Corrector>> = Arc::new(Mutex::new(
         corrector::Corrector::new(&cfg.llm, &hw).expect("LLM")));
 
     let input_devices: Vec<String> = device_selector::list_input_devices()
         .iter().map(|d| format!("{} ({}ch {}Hz)", d.name, d.channels, d.sample_rate)).collect();
-    let llm_names: Vec<String> = llm_entries.iter().map(|m| m.name.clone()).collect();
-    let (switch_tx, switch_rx) = mpsc::channel::<(Option<usize>, Option<usize>)>();
+    let (switch_tx, switch_rx) = mpsc::channel::<Option<usize>>();
     tray::run_tray_in_thread(
         "audio-input 🎤".to_string(),
         input_devices, 0,
-        llm_names, cfg.active_llm_idx,
         switch_tx,
     );
 
@@ -159,22 +156,40 @@ fn main() {
             }
 
             tray::set_tooltip("🤖 LLM 修正中...");
-            let text = match corrector.lock().unwrap().correct(&raw) {
-                Ok(t) => {
-                    if is_valid_text(&t) {
-                        info!("LLM: {}", t);
-                        t
-                    } else {
-                        info!("LLM 返回无效内容, 使用 ASR 原文: '{}'", t.chars().take(80).collect::<String>());
-                        raw.clone()
+            // 最多重试3次：如果结果和生文本一样，立即重试
+            let mut text = raw.clone();
+            let max_retries = 3;
+            for attempt in 0..max_retries {
+                match corrector.lock().unwrap().correct(&raw) {
+                    Ok(t) => {
+                        if is_valid_text(&t) {
+                            info!("LLM (第{}次): {}", attempt + 1, t);
+                            text = t;
+                            // 和生文本不一样 → 成功，退出重试
+                            if text.trim() != raw.trim() { break; }
+                            info!("🔄 LLM 结果与生文本一致，立即重试 ({}/{})", attempt + 1, max_retries);
+                        } else {
+                            info!("LLM 返回无效内容 (第{}次): '{}'", attempt + 1, t.chars().take(80).collect::<String>());
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("LLM (第{}次): {}", attempt + 1, e);
+                        break;
                     }
                 }
-                Err(e) => { warn!("LLM: {}", e); raw }
+            }
+
+            // 如果和生文本完全一样（修正失败/无变化），末尾打标注
+            let final_text = if text.trim() == raw.trim() {
+                if text.trim().is_empty() { text } else { format!("{} (生文本)", text.trim()) }
+            } else {
+                text
             };
 
-            tray::set_last_result(&text);
-            if is_valid_text(&text) {
-                let _ = paster.paste(&text);
+            tray::set_last_result(&final_text);
+            if is_valid_text(&final_text) {
+                let _ = paster.paste(&final_text);
                 info!("📋✅ 已粘贴");
             } else {
                 info!("⏭️ 无有效指令, 不粘贴");
@@ -198,37 +213,16 @@ fn main() {
         }
     };
 
-    // 托盘切换监听线程 — 实时更新 corrector 和 input_id
+    // 托盘麦克风切换监听线程
     {
-        let corrector = corrector.clone();
-        let hw_c = hw.clone();
-        let llm_entries = llm_entries.clone();
         let input_id = input_id.clone();
         std::thread::spawn(move || {
-            for (mic_idx, llm_idx) in switch_rx {
-                // 麦克风切换
+            for mic_idx in switch_rx {
                 if let Some(i) = mic_idx {
                     let devs = device_selector::list_input_devices();
                     if let Some(d) = devs.get(i) {
                         info!("🔄 切换麦克风: [{}] {}", i, d.name);
                         input_id.store(d.id as i32, Ordering::SeqCst);
-                    }
-                }
-                // LLM 模型切换
-                if let Some(i) = llm_idx {
-                    if i < llm_entries.len() {
-                        let entry = &llm_entries[i];
-                        let cfg = config::LlmConfig {
-                            base_url: entry.base_url.clone(),
-                            api_key: entry.api_key.clone(),
-                            model: entry.model.clone(),
-                            verify_ssl: entry.verify_ssl.unwrap_or(false),
-                        };
-                        info!("🔄 切换 LLM: {} @ {}", entry.name, entry.base_url);
-                        match corrector::Corrector::new(&cfg, &hw_c) {
-                            Ok(c) => { *corrector.lock().unwrap() = c; info!("✅ LLM 切换成功"); }
-                            Err(e) => { error!("LLM 切换失败: {}", e); }
-                        }
                     }
                 }
             }
