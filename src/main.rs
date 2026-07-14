@@ -54,8 +54,31 @@ fn main() {
     let input_id = Arc::new(AtomicI32::new(device_selector::resolve_input_device()));
     info!("🎤 {}", device_selector::input_device_name(input_id.load(Ordering::SeqCst)));
 
-    let asr = Arc::new(asr_engine::AsrEngine::new(&cfg.asr.model_dir).map(Some)
-        .unwrap_or_else(|e| { warn!("ASR: {}", e); None }));
+    // ASR 引擎初始化 — 模型缺失时弹 Windows 对话框并退出
+    let asr = match asr_engine::AsrEngine::new(&cfg.asr.model_dir) {
+        Ok(engine) => Arc::new(Some(engine)),
+        Err(e) => {
+            let msg = format!(
+                "SenseVoice ASR 模型未找到!\n\n\
+                 需要: {}\\model.int8.onnx\n\
+                 需要: {}\\tokens.txt\n\n\
+                 下载地址:\n\
+                 https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2025-09-09.tar.bz2\n\n\
+                 下载后解压到 exe 同目录的 models/sense-voice-int8/ 文件夹\n\n\
+                 程序即将退出。",
+                cfg.asr.model_dir.display(), cfg.asr.model_dir.display()
+            );
+            #[cfg(windows)] unsafe {
+                use windows::Win32::UI::WindowsAndMessaging::*;
+                use windows::core::PCWSTR;
+                let title: Vec<u16> = "audio-input\0".encode_utf16().collect();
+                let body: Vec<u16> = msg.encode_utf16().chain(std::iter::once(0)).collect();
+                MessageBoxW(None, PCWSTR(body.as_ptr()), PCWSTR(title.as_ptr()), MB_OK | MB_ICONERROR);
+            }
+            error!("{}", e);
+            std::process::exit(1);
+        }
+    };
     let llm_entries: Vec<config::LlmModelEntry> = cfg.llm_models.clone();
     let corrector: Arc<Mutex<corrector::Corrector>> = Arc::new(Mutex::new(
         corrector::Corrector::new(&cfg.llm, &hw).expect("LLM")));
